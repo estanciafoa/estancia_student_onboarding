@@ -106,13 +106,21 @@ function doPost(e) {
     const payload = body.payload || body;
     let result;
     switch (body.action) {
-      case 'getFlatForReview':       result = getFlatForReview(body.flat); break;
+      case 'getFlatForReview':       result = getFlatForReview(body.flat || (payload && payload.flat)); break;
       case 'submitStudentSelf':      result = submitStudentSelf(payload); break;
       case 'getDocsForVerify':       result = getDocsForVerify_(body.studentId || (payload && payload.studentId)); break;
       case 'uploadAgreement':        result = uploadAgreement_(payload); break;
       case 'saveStudentVerification':result = saveStudentVerification(payload); break;
       case 'saveFlatSigning':        result = saveFlatSigning(payload); break;
-      case 'generateAnnexurePdf':    result = generateAnnexurePdf(body.flat); break;
+      case 'generateAnnexurePdf':    result = generateAnnexurePdf(body.flat || (payload && payload.flat)); break;
+      // Admin web-page actions (also callable via google.script.run when embedded).
+      case 'getLogo':                result = getLogo(); break;
+      case 'getCompareDocs':         result = getCompareDocs(payload.studentId); break;
+      case 'getFlatAgreementDoc':    result = getFlatAgreementDoc(body.flat || payload.flat); break;
+      case 'saveStudentDetails':     result = saveStudentDetails(payload.studentId, payload.fields); break;
+      case 'saveFlatDetails':        result = saveFlatDetails(body.flat || payload.flat, payload.fields); break;
+      case 'assignStudentId':        result = assignStudentId(payload.studentId, payload.assignedId); break;
+      case 'webUploadAgreement':     result = webUploadAgreement(payload.flat, payload.base64, payload.fileName, payload.mimeType); break;
       default: throw new Error('Unknown action: ' + body.action);
     }
     out = { ok: true, result: result };
@@ -1673,3 +1681,4 @@ function sheetToCsv_(sheet) {
     )
     .join('\n');
 }
+  
