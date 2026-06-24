@@ -118,28 +118,36 @@
     .assign-row button { padding: 9px 12px; border: none; border-radius: 8px; background: var(--pri); color: #fff;
                          font-weight: 600; cursor: pointer; font-size: 13px; white-space: nowrap; }
 
-    /* student photo capture (center pane) */
-    .photo { margin-top: 18px; padding-top: 14px; border-top: 1px solid #eef1f7; }
-    .photo .cam { width: 100%; max-width: 320px; border-radius: 8px; background: #000; display: none; }
-    .cam-placeholder { width: 100%; max-width: 320px; aspect-ratio: 4/3; border: 2px dashed var(--line);
-                       border-radius: 8px; background: var(--grey); display: flex; flex-direction: column;
-                       align-items: center; justify-content: center; gap: 8px; color: var(--muted); cursor: pointer;
+    /* student photo capture (center pane) — single media frame, one state at a time */
+    .photo { margin-top: 18px; padding-top: 16px; border-top: 1px solid #eef1f7; }
+    .photo-stage { position: relative; width: 100%; max-width: 300px; aspect-ratio: 4 / 3; border-radius: 12px;
+                   overflow: hidden; background: var(--grey); border: 1px solid var(--line); box-shadow: var(--sh-sm); }
+    .cam-placeholder { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center;
+                       justify-content: center; gap: 7px; color: var(--muted); cursor: pointer; background: transparent;
+                       border: 2px dashed var(--line); border-radius: 12px;
                        transition: border-color .15s, background .15s, color .15s; }
-    .cam-placeholder:hover { border-color: var(--accent); background: #eef2fb; color: var(--pri); }
-    .cam-placeholder .ph-icon { font-size: 34px; line-height: 1; }
-    .cam-placeholder .ph-text { font-size: 13px; font-weight: 600; }
-    .photo-wrap { position: relative; display: none; margin-top: 8px; max-width: 240px; }
-    .photo .camshot { width: 100%; border-radius: 8px; border: 1px solid var(--line); display: block; }
-    .photo-x { position: absolute; top: 6px; right: 6px; width: 26px; height: 26px; padding: 0; border: none;
-               border-radius: 50%; background: rgba(0,0,0,.62); color: #fff; font-size: 18px; line-height: 1;
-               cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: var(--sh-sm); }
+    .cam-placeholder:hover { border-color: var(--accent); background: rgba(73,198,221,.07); color: var(--pri); }
+    .cam-placeholder .ph-icon { font-size: 38px; line-height: 1; }
+    .cam-placeholder .ph-text { font-size: 13.5px; font-weight: 700; }
+    .cam-placeholder .ph-sub { font-size: 11px; }
+    .photo .cam { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; background: #000; display: none; }
+    .photo-wrap { position: absolute; inset: 0; display: none; }
+    .photo .camshot { width: 100%; height: 100%; object-fit: contain; display: block; background: var(--grey); }
+    .photo-x { position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; padding: 0; border: none;
+               border-radius: 50%; background: rgba(0,0,0,.6); color: #fff; font-size: 19px; line-height: 1; cursor: pointer;
+               display: flex; align-items: center; justify-content: center; box-shadow: var(--sh-md); transition: background .15s; }
     .photo-x:hover { background: var(--err); }
-    .photo-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
-    .photo-actions button { padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: #eef2fb;
-                            color: var(--pri); font-weight: 600; cursor: pointer; font-size: 13px; }
-    .savebtn { margin-top: 10px; width: 100%; padding: 11px; border: none; border-radius: 8px; background: var(--ok);
-               color: #fff; font-weight: 700; cursor: pointer; }
-    .savebtn:disabled { background: #9aa0a6; cursor: default; }
+    .photo-note { font-size: 12px; color: var(--muted); margin-top: 9px; line-height: 1.45; max-width: 300px; }
+    .photo-actions { display: flex; gap: 7px; flex-wrap: wrap; margin-top: 11px; max-width: 320px; }
+    .pbtn { padding: 8px 12px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface);
+            color: var(--pri); font-weight: 600; cursor: pointer; font-size: 13px; display: inline-flex;
+            align-items: center; gap: 5px; transition: border-color .12s, background .12s; }
+    .pbtn:hover { border-color: var(--accent); background: #f1fbfd; }
+    .pbtn:disabled { opacity: .45; cursor: default; border-color: var(--line); background: var(--surface); }
+    .pbtn.primary { background: linear-gradient(180deg, var(--accent), var(--acc-d)); color: var(--pri-d); border-color: transparent; }
+    .savebtn { margin-top: 12px; width: 100%; max-width: 300px; padding: 12px; border: none; border-radius: 10px;
+               background: var(--ok); color: #fff; font-weight: 700; cursor: pointer; font-size: 14px; box-shadow: var(--sh-sm); }
+    .savebtn:disabled { background: #9aa0a6; cursor: default; box-shadow: none; }
 
     /* passport-crop + color-correction photo editor */
     .peditor { position: fixed; inset: 0; background: rgba(0,0,0,.82); z-index: 80; display: none;
@@ -249,9 +257,13 @@
     body.theme-dark .drow dd { color: var(--dark); }
     body.theme-dark .docgroup { color: #9fb1c0; }
     body.theme-dark .flatedit label, body.theme-dark .edrow label { color: #9fb1c0; }
-    body.theme-dark .cam-placeholder { background: #0f1a24; }
-    body.theme-dark .cam-placeholder:hover { background: #25394a; color: var(--accent); }
-    body.theme-dark .photo-actions button { background: #1b2733; color: var(--accent); }
+    body.theme-dark .cam-placeholder { background: transparent; }
+    body.theme-dark .cam-placeholder:hover { background: rgba(73,198,221,.10); color: var(--accent); }
+    body.theme-dark .photo-note { color: #9fb1c0; }
+    body.theme-dark .pbtn { background: #1b2733; color: var(--accent); border-color: var(--line); }
+    body.theme-dark .pbtn:hover { background: #25394a; }
+    body.theme-dark .pbtn.primary { color: var(--pri-d); }
+    body.theme-dark .pbtn:disabled { background: #1b2733; }
     body.theme-dark .ghostbtn { background: #1b2733; color: var(--accent); }
     body.theme-dark .thumb .dl { background: #1b2733; color: var(--accent); border-top-color: var(--line); }
     body.theme-dark .thumb .dl:hover { background: #25394a; }
@@ -333,21 +345,25 @@
 
         <div class="photo" id="photoSection" style="display:none">
           <div class="docgroup">Student photo</div>
-          <div id="camPlaceholder" class="cam-placeholder" onclick="startCam()">
-            <div class="ph-icon">📷</div>
-            <div class="ph-text">Click to take a photo</div>
+          <div class="photo-stage" id="photoStage">
+            <div id="camPlaceholder" class="cam-placeholder" onclick="startCam()">
+              <div class="ph-icon">📷</div>
+              <div class="ph-text">Click to take a photo</div>
+              <div class="ph-sub">or use Upload below</div>
+            </div>
+            <video id="camVideo" class="cam" autoplay playsinline muted></video>
+            <div id="photoWrap" class="photo-wrap">
+              <img id="photoPreview" class="camshot" alt="student photo">
+              <button class="photo-x" onclick="removePhoto()" title="Remove photo">&times;</button>
+            </div>
           </div>
-          <video id="camVideo" class="cam" autoplay playsinline muted></video>
-          <div id="photoWrap" class="photo-wrap">
-            <img id="photoPreview" class="camshot" alt="captured photo">
-            <button class="photo-x" onclick="removePhoto()" title="Remove photo">&times;</button>
-          </div>
-          <div id="photoExisting" class="hint"></div>
+          <div id="photoExisting" class="photo-note"></div>
           <div class="photo-actions">
-            <button onclick="capturePhoto()">Capture</button>
-            <button onclick="document.getElementById('photoFile').click()">Upload</button>
-            <button id="editPhotoBtn" onclick="openPhotoEditor()" disabled>Crop / Color ✎</button>
-            <button id="dlPhotoBtn" onclick="downloadPhoto()" disabled>Download ⬇</button>
+            <button id="captureBtn" class="pbtn primary" onclick="capturePhoto()" style="display:none">📸 Capture</button>
+            <button id="cancelCamBtn" class="pbtn" onclick="cancelCam()" style="display:none">Cancel</button>
+            <button id="uploadBtn" class="pbtn" onclick="document.getElementById('photoFile').click()">⬆ Upload</button>
+            <button id="editPhotoBtn" class="pbtn" onclick="openPhotoEditor()" disabled>✂ Crop / Color</button>
+            <button id="dlPhotoBtn" class="pbtn" onclick="downloadPhoto()" disabled>⬇ Download</button>
             <input type="file" id="photoFile" accept="image/*" onchange="onPhotoFile(this)">
             <input type="file" id="photoCapture" accept="image/*" capture="user" onchange="onPhotoFile(this)">
           </div>
@@ -954,6 +970,22 @@
     }
 
     // ---------- center: student photo capture ----------
+    // Single media frame shows exactly one of: 'empty' (placeholder) · 'camera' (live feed) ·
+    // 'photo' (captured/existing). The toolbar adapts: Capture/Cancel while live, otherwise
+    // Upload/Crop/Download.
+    function setPhotoState(state) {
+      document.getElementById('camPlaceholder').style.display = state === 'empty' ? 'flex' : 'none';
+      document.getElementById('camVideo').style.display = state === 'camera' ? 'block' : 'none';
+      document.getElementById('photoWrap').style.display = state === 'photo' ? 'block' : 'none';
+      var live = state === 'camera';
+      document.getElementById('captureBtn').style.display = live ? '' : 'none';
+      document.getElementById('cancelCamBtn').style.display = live ? '' : 'none';
+      document.getElementById('uploadBtn').style.display = live ? 'none' : '';
+      document.getElementById('editPhotoBtn').style.display = live ? 'none' : '';
+      document.getElementById('dlPhotoBtn').style.display = live ? 'none' : '';
+    }
+    function cancelCam() { renderPhoto(); }   // stop the live feed, revert to the on-file photo / empty state
+
     function renderPhoto() {
       stopCam();
       capturedPhoto = '';
@@ -967,15 +999,15 @@
       var existing = s._docs && s._docs.photo;
       if (existing) {
         pv.src = 'data:' + (existing.mime || 'image/jpeg') + ';base64,' + existing.base64;
-        document.getElementById('photoWrap').style.display = 'inline-block';
+        setPhotoState('photo');
       } else {
-        pv.src = ''; document.getElementById('photoWrap').style.display = 'none';
+        pv.src = ''; setPhotoState('empty');
       }
       document.getElementById('dlPhotoBtn').disabled = !existing;
       document.getElementById('editPhotoBtn').disabled = !existing;
       document.getElementById('photoExisting').innerHTML = existing
-        ? 'Photo on file — Download saves it as <b>' + esc(getIdBase(s)) + '.jpeg</b>. Capture or upload to replace.'
-        : 'No photo yet. Capture or upload one.';
+        ? 'Photo on file — Download saves it as <b>' + esc(getIdBase(s)) + '.jpeg</b>. Take or upload a new one to replace it.'
+        : 'No photo yet — take one with the camera or upload an image.';
     }
 
     function startCam() {
@@ -991,9 +1023,9 @@
       navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false })
         .then(function (st) {
           camStream = st;
-          var v = document.getElementById('camVideo'); v.srcObject = st; v.style.display = 'block';
-          var ph = document.getElementById('camPlaceholder'); if (ph) ph.style.display = 'none';
-          statusEl.textContent = '';
+          document.getElementById('camVideo').srcObject = st;
+          setPhotoState('camera');
+          statusEl.textContent = 'Position the face in frame, then press Capture.';
         })
         .catch(function () {
           statusEl.textContent = 'Live camera is blocked in this embedded page — opening your device camera instead.';
@@ -1010,8 +1042,8 @@
 
     function stopCam() {
       if (camStream) { camStream.getTracks().forEach(function (t) { t.stop(); }); camStream = null; }
-      var v = document.getElementById('camVideo'); if (v) { v.style.display = 'none'; v.srcObject = null; }
-      var ph = document.getElementById('camPlaceholder'); if (ph) ph.style.display = 'flex';
+      var v = document.getElementById('camVideo'); if (v) { v.srcObject = null; }
+      // visibility is managed by setPhotoState(); don't force the placeholder here.
     }
 
     function capturePhoto() {
@@ -1033,8 +1065,8 @@
     }
 
     function showShot(url) {
-      var pv = document.getElementById('photoPreview'); pv.src = url;
-      document.getElementById('photoWrap').style.display = 'inline-block';
+      document.getElementById('photoPreview').src = url;
+      setPhotoState('photo');
       document.getElementById('savePhotoBtn').disabled = false;
       document.getElementById('dlPhotoBtn').disabled = false;
       document.getElementById('editPhotoBtn').disabled = false;
@@ -1045,14 +1077,14 @@
     // from Drive — capture or upload a new one and Save to replace that).
     function removePhoto() {
       capturedPhoto = '';
-      var pv = document.getElementById('photoPreview'); pv.src = '';
-      document.getElementById('photoWrap').style.display = 'none';
+      document.getElementById('photoPreview').src = '';
       document.getElementById('photoFile').value = '';
       document.getElementById('photoCapture').value = '';
+      setPhotoState('empty');
       document.getElementById('savePhotoBtn').disabled = true;
       document.getElementById('dlPhotoBtn').disabled = true;
       document.getElementById('editPhotoBtn').disabled = true;
-      document.getElementById('photoStatus').textContent = 'Photo removed. Capture or upload a new one.';
+      document.getElementById('photoStatus').textContent = 'Photo removed — take or upload a new one.';
     }
 
     function savePhoto() {
