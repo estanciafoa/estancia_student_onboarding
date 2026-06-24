@@ -59,8 +59,10 @@
     .gutter { background: var(--line); cursor: col-resize; touch-action: none; }
     .gutter:hover, .gutter.drag { background: var(--pri); }
     .pane-head { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: #fff;
-                 border-bottom: 1px solid var(--line); font-size: 13px; font-weight: 700; text-transform: uppercase;
-                 letter-spacing: .04em; color: var(--pri); }
+                 border-bottom: 1px solid var(--line); font-size: 13px; font-weight: 800; text-transform: uppercase;
+                 letter-spacing: .05em; color: #0a83ac; }
+    .pane-head::before { content: ''; flex: 0 0 auto; width: 4px; height: 15px; border-radius: 2px;
+                         background: linear-gradient(180deg, var(--accent), var(--pri)); }
     .pane-head .hint { font-weight: 400; text-transform: none; letter-spacing: 0; color: #8a94a6; font-size: 12px; }
     .pane-head .head-actions { margin-left: auto; display: flex; align-items: center; gap: 6px; }
     .pane-head button.mini { padding: 6px 10px; font-size: 12px; border: 1px solid var(--line);
