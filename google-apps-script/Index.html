@@ -1,0 +1,1044 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      body {
+        font-family: "Segoe UI", sans-serif;
+        margin: 0;
+        padding: 16px;
+        background: #f4f6fb;
+        color: #1d2433;
+      }
+      .container {
+        max-width: 820px;
+        margin: 0 auto;
+        background: #ffffff;
+        border-radius: 16px;
+        padding: 20px;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+      }
+      h1 {
+        margin: 0 0 16px;
+        font-size: 22px;
+      }
+      .step-title {
+        margin: 16px 0 8px;
+        font-size: 14px;
+        color: #0f62fe;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+      }
+      .full {
+        grid-column: 1 / -1;
+      }
+      label {
+        display: block;
+        font-size: 13px;
+        margin-bottom: 6px;
+        color: #48536a;
+      }
+      input, select, textarea, button {
+        width: 100%;
+        border: 1px solid #d6dceb;
+        border-radius: 10px;
+        padding: 10px;
+        font-size: 14px;
+        box-sizing: border-box;
+      }
+      textarea {
+        min-height: 70px;
+        resize: vertical;
+      }
+      .flat-box {
+        margin-bottom: 16px;
+        padding: 12px;
+        border: 1px solid #e3e8f3;
+        border-radius: 12px;
+        background: #fafcff;
+      }
+      .agreement-info {
+        margin-top: 10px;
+        font-size: 13px;
+        background: #f1f6ff;
+        border: 1px solid #d6e2fb;
+        border-radius: 8px;
+        padding: 8px 10px;
+        display: none;
+      }
+      .agreement-info div {
+        margin: 2px 0;
+      }
+      .agreement-pages {
+        margin-top: 10px;
+        display: none;
+      }
+      .agreement-pages .pages-hint {
+        font-size: 12px;
+        color: #5f6f8f;
+        margin-bottom: 6px;
+      }
+      .pages-grid {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+      .page-thumb {
+        border: 1px solid #d6dceb;
+        border-radius: 8px;
+        padding: 6px;
+        background: #fff;
+        text-align: center;
+      }
+      .page-thumb.selected {
+        border-color: #0f62fe;
+        box-shadow: 0 0 0 2px rgba(15, 98, 254, 0.15);
+      }
+      .page-thumb canvas {
+        display: block;
+        width: 90px;
+        height: auto;
+        border-radius: 4px;
+      }
+      .page-thumb label {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 4px;
+        font-size: 12px;
+        margin: 6px 0 0;
+        cursor: pointer;
+      }
+      .page-thumb input {
+        width: auto;
+      }
+      .actions {
+        display: flex;
+        gap: 10px;
+      }
+      button {
+        border: none;
+        background: #0f62fe;
+        color: #fff;
+        cursor: pointer;
+        font-weight: 600;
+      }
+      button.secondary {
+        background: #2c7a4b;
+      }
+      .note {
+        font-size: 12px;
+        color: #5f6f8f;
+      }
+      .status {
+        margin-top: 12px;
+        font-size: 14px;
+      }
+      .tab-bar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-bottom: 14px;
+        border-bottom: 1px solid #e3e8f3;
+        padding-bottom: 10px;
+      }
+      .tab-btn {
+        width: auto;
+        background: #eef2fb;
+        color: #1d2433;
+        border: 1px solid #d6dceb;
+        padding: 8px 12px;
+        font-size: 13px;
+        max-width: 160px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .tab-btn.active {
+        background: #0f62fe;
+        color: #fff;
+        border-color: #0f62fe;
+      }
+      .panel {
+        display: none;
+      }
+      .panel.active {
+        display: block;
+      }
+      .dropzone {
+        border: 2px dashed #b9c6e6;
+        border-radius: 12px;
+        padding: 18px;
+        text-align: center;
+        background: #fafcff;
+        cursor: pointer;
+      }
+      .dropzone.drag {
+        border-color: #0f62fe;
+        background: #eef4ff;
+      }
+      .dropzone-hint {
+        font-size: 13px;
+        color: #5f6f8f;
+      }
+      .camera-wrap {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+        margin-top: 6px;
+      }
+      .camera-card {
+        border: 1px solid #d6dceb;
+        border-radius: 12px;
+        padding: 10px;
+        background: #fafcff;
+      }
+      .camera-card h3 {
+        margin: 0 0 8px;
+        font-size: 14px;
+      }
+      .camera-video {
+        width: 100%;
+        border-radius: 8px;
+        background: #e8eefc;
+        min-height: 140px;
+        object-fit: cover;
+      }
+      .mini-actions {
+        display: flex;
+        gap: 8px;
+        margin-top: 8px;
+      }
+      .mini-actions button {
+        padding: 8px;
+        font-size: 13px;
+      }
+      .snapshot {
+        width: 100%;
+        margin-top: 8px;
+        border-radius: 8px;
+        border: 1px solid #d6dceb;
+      }
+      .upload-fallback {
+        margin-top: 8px;
+      }
+      .existing-photo {
+        font-size: 12px;
+        margin-top: 6px;
+      }
+      .row-actions {
+        display: flex;
+        gap: 10px;
+        margin-top: 14px;
+      }
+      .extracted-names {
+        margin-top: 8px;
+        font-size: 12px;
+        color: #5f6f8f;
+      }
+      .ok {
+        color: #117a37;
+      }
+      .err {
+        color: #b42318;
+      }
+      @media (max-width: 680px) {
+        .grid {
+          grid-template-columns: 1fr;
+        }
+        .camera-wrap {
+          grid-template-columns: 1fr;
+        }
+        .tab-btn {
+          max-width: 120px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>Student Onboarding</h1>
+      <p class="note">Follow the steps: set the flat &amp; agreement, upload each student's Aadhaar (details auto-fill), then capture the student photo and college ID. Names are cross-checked before saving.</p>
+
+      <div class="flat-box">
+        <div class="step-title" style="margin-top:0;">Step 1 — Flat &amp; agreement</div>
+        <label>Flat Number</label>
+        <input id="flat" placeholder="Enter flat number to load / add students" />
+        <div id="flatStatus" class="note"></div>
+        <div style="margin-top: 10px;">
+          <label>Flat Agreement Copy (PDF/image, optional, one per flat)</label>
+          <input id="agreementFile" type="file" accept="application/pdf,image/*" onchange="onAgreementFileChosen()" />
+          <div id="agreementPages" class="agreement-pages">
+            <div class="pages-hint">Select the page(s) with student details — only these are sent to AI (saves tokens).</div>
+            <div id="pagesGrid" class="pages-grid"></div>
+          </div>
+          <div class="mini-actions">
+            <button type="button" onclick="saveAgreement()">Save &amp; Read Agreement</button>
+          </div>
+          <div id="agreementStatus" class="note"></div>
+          <div id="agreementInfo" class="agreement-info"></div>
+        </div>
+      </div>
+
+      <div id="tabBar" class="tab-bar"></div>
+      <div id="panels"></div>
+
+      <div class="actions" style="margin-top: 14px;">
+        <button class="secondary" onclick="runExport()">Export CSV For ID Card</button>
+      </div>
+
+      <div id="status" class="status"></div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script>
+      if (window.pdfjsLib) {
+        pdfjsLib.GlobalWorkerOptions.workerSrc =
+          'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+      }
+
+      window.addEventListener('load', init);
+
+      const MAX_STUDENTS = 6;
+      const tabs = [];
+      const streams = {};
+      let activeTab = 0;
+      let lastLoadedFlat = '';
+      let flatAgreement = {};
+      let agreementPdfDoc = null;
+      let agreementIsPdf = false;
+
+      function freshTab() {
+        return { studentId: '', studentPhotoBase64: '', aadharPhotoBase64: '', collegePhotoBase64: '', aadharName: '', collegeName: '' };
+      }
+
+      function serverReady() {
+        return !!(window.google && google.script && google.script.run);
+      }
+
+      function init() {
+        for (let i = 0; i < MAX_STUDENTS; i++) {
+          tabs.push(freshTab());
+        }
+        renderTabs();
+        switchTab(0);
+
+        if (!serverReady()) {
+          showFlatStatus(
+            'Server bridge unavailable — open this page via the Apps Script Web App URL (Deploy → Web app, ending in /exec or /dev), not as a local file or preview.',
+            false
+          );
+        }
+
+        const flat = document.getElementById('flat');
+        flat.addEventListener('change', loadFlat);
+        flat.addEventListener('blur', loadFlat);
+        flat.addEventListener('keydown', e => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            loadFlat();
+          }
+        });
+
+        // Paste an Aadhaar image from the clipboard into the active tab.
+        document.addEventListener('paste', onPasteAadhar);
+      }
+
+      function renderTabs() {
+        const tabBar = document.getElementById('tabBar');
+        const panels = document.getElementById('panels');
+        tabBar.innerHTML = '';
+        panels.innerHTML = '';
+
+        for (let i = 0; i < MAX_STUDENTS; i++) {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'tab-btn';
+          btn.id = 'tab_' + i;
+          btn.textContent = 'Student ' + (i + 1);
+          btn.onclick = () => switchTab(i);
+          tabBar.appendChild(btn);
+
+          panels.appendChild(buildPanel(i));
+        }
+      }
+
+      function buildPanel(i) {
+        const panel = document.createElement('div');
+        panel.className = 'panel';
+        panel.id = 'panel_' + i;
+        panel.innerHTML =
+          '<div class="step-title">Step 2 — Upload Aadhaar</div>' +
+          '<div class="dropzone" id="aadharDrop_' + i + '" ' +
+              'onclick="document.getElementById(\'aadharPhoto_' + i + '\').click()" ' +
+              'ondragover="onDragOver(event, ' + i + ')" ondragleave="onDragLeave(event, ' + i + ')" ' +
+              'ondrop="onAadharDrop(event, ' + i + ')">' +
+            '<div class="dropzone-hint">Click to choose a file, drag &amp; drop, or paste (Ctrl/Cmd+V) the Aadhaar image here</div>' +
+            '<input id="aadharPhoto_' + i + '" type="file" accept="image/*" style="display:none;" onchange="onPhotoFile(\'aadhar\', ' + i + ')" />' +
+            '<img id="aadharPreview_' + i + '" class="snapshot" alt="Aadhaar preview" style="display:none;" />' +
+            '<div id="aadharExisting_' + i + '" class="existing-photo"></div>' +
+          '</div>' +
+
+          '<div class="step-title">Step 3 — Verify details</div>' +
+          '<div class="grid">' +
+            '<div>' +
+              '<label>Aadhar Number</label>' +
+              '<input id="aadhar_' + i + '" placeholder="12-digit aadhar" />' +
+            '</div>' +
+            '<div>' +
+              '<label>Name</label>' +
+              '<input id="name_' + i + '" placeholder="Student full name" />' +
+            '</div>' +
+            '<div>' +
+              '<label>Phone</label>' +
+              '<input id="phone_' + i + '" placeholder="10-digit phone" />' +
+            '</div>' +
+            '<div class="full">' +
+              '<label>Notes</label>' +
+              '<textarea id="notes_' + i + '" placeholder="Any notes"></textarea>' +
+            '</div>' +
+          '</div>' +
+
+          '<div class="step-title">Step 4 — Student photo &amp; college ID</div>' +
+          '<div class="camera-wrap">' +
+            cameraCardHtml(i, 'student', 'Student Photo', 'Capture') +
+            cameraCardHtml(i, 'college', 'Student ID (College ID)', 'Capture &amp; Scan') +
+          '</div>' +
+
+          '<div id="names_' + i + '" class="extracted-names"></div>' +
+          '<div class="row-actions">' +
+            '<button onclick="saveRow(' + i + ')">Save Student</button>' +
+          '</div>' +
+          '<div id="status_' + i + '" class="status"></div>';
+
+        // Live tab rename based on name field.
+        panel.querySelector('#name_' + i).addEventListener('input', () => refreshTabLabel(i));
+        return panel;
+      }
+
+      function cameraCardHtml(i, kind, title, captureLabel) {
+        return (
+          '<div class="camera-card">' +
+            '<h3>' + title + '</h3>' +
+            '<video id="' + kind + 'Video_' + i + '" class="camera-video" autoplay playsinline muted></video>' +
+            '<div class="mini-actions">' +
+              '<button type="button" onclick="startCamera(\'' + kind + '\', ' + i + ')">Start</button>' +
+              '<button type="button" onclick="captureFromCamera(\'' + kind + '\', ' + i + ')">' + captureLabel + '</button>' +
+            '</div>' +
+            '<input class="upload-fallback" id="' + kind + 'Photo_' + i + '" type="file" accept="image/*" ' +
+              (kind === 'student' ? 'capture="user"' : 'capture="environment"') +
+              ' onchange="onPhotoFile(\'' + kind + '\', ' + i + ')" />' +
+            '<img id="' + kind + 'Preview_' + i + '" class="snapshot" alt="' + title + ' preview" style="display:none;" />' +
+            '<div id="' + kind + 'Existing_' + i + '" class="existing-photo"></div>' +
+          '</div>'
+        );
+      }
+
+      function switchTab(i) {
+        activeTab = i;
+        stopAllStreams();
+        for (let k = 0; k < MAX_STUDENTS; k++) {
+          document.getElementById('tab_' + k).classList.toggle('active', k === i);
+          document.getElementById('panel_' + k).classList.toggle('active', k === i);
+        }
+      }
+
+      function refreshTabLabel(i) {
+        const name = document.getElementById('name_' + i).value.trim();
+        document.getElementById('tab_' + i).textContent = name || ('Student ' + (i + 1));
+      }
+
+      function clearTab(i) {
+        tabs[i] = freshTab();
+        document.getElementById('aadhar_' + i).value = '';
+        document.getElementById('name_' + i).value = '';
+        document.getElementById('phone_' + i).value = '';
+        document.getElementById('notes_' + i).value = '';
+        ['student', 'college', 'aadhar'].forEach(kind => {
+          const inp = document.getElementById(kind + 'Photo_' + i);
+          if (inp) inp.value = '';
+          hidePreview(kind, i);
+          const ex = document.getElementById(kind + 'Existing_' + i);
+          if (ex) ex.innerHTML = '';
+        });
+        document.getElementById('names_' + i).innerHTML = '';
+        document.getElementById('status_' + i).textContent = '';
+        refreshTabLabel(i);
+      }
+
+      function hidePreview(kind, i) {
+        const img = document.getElementById(kind + 'Preview_' + i);
+        if (!img) return;
+        img.src = '';
+        img.style.display = 'none';
+      }
+
+      function showPreview(kind, i, dataUrl) {
+        const img = document.getElementById(kind + 'Preview_' + i);
+        img.src = dataUrl;
+        img.style.display = 'block';
+      }
+
+      function showRowStatus(i, text, ok) {
+        const status = document.getElementById('status_' + i);
+        status.textContent = text;
+        status.className = 'status ' + (ok ? 'ok' : 'err');
+      }
+
+      function showFlatStatus(text, ok) {
+        const status = document.getElementById('flatStatus');
+        status.textContent = text;
+        status.className = 'note ' + (ok ? 'ok' : 'err');
+      }
+
+      // ---------- Aadhaar upload: drag/drop + paste ----------
+
+      function onDragOver(e, i) {
+        e.preventDefault();
+        document.getElementById('aadharDrop_' + i).classList.add('drag');
+      }
+
+      function onDragLeave(e, i) {
+        document.getElementById('aadharDrop_' + i).classList.remove('drag');
+      }
+
+      function onAadharDrop(e, i) {
+        e.preventDefault();
+        document.getElementById('aadharDrop_' + i).classList.remove('drag');
+        const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+        if (!file || file.type.indexOf('image') !== 0) {
+          showRowStatus(i, 'Drop an image file for the Aadhaar.', false);
+          return;
+        }
+        blobToBase64(file).then(b64 => applyPhoto('aadhar', i, b64, 'data:' + file.type + ';base64,' + b64));
+      }
+
+      function onPasteAadhar(e) {
+        const items = e.clipboardData && e.clipboardData.items;
+        if (!items) return;
+        for (let k = 0; k < items.length; k++) {
+          if (items[k].type && items[k].type.indexOf('image') === 0) {
+            const blob = items[k].getAsFile();
+            const type = items[k].type;
+            blobToBase64(blob).then(b64 => applyPhoto('aadhar', activeTab, b64, 'data:' + type + ';base64,' + b64));
+            e.preventDefault();
+            return;
+          }
+        }
+      }
+
+      // ---------- Camera ----------
+
+      function stopAllStreams() {
+        Object.keys(streams).forEach(key => {
+          const s = streams[key];
+          if (s) {
+            s.getTracks().forEach(t => t.stop());
+          }
+          delete streams[key];
+        });
+      }
+
+      async function startCamera(kind, i) {
+        stopAllStreams();
+        const constraints = {
+          video: {
+            facingMode: kind === 'student' ? 'user' : 'environment',
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          },
+          audio: false
+        };
+
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia(constraints);
+          streams[kind + '_' + i] = stream;
+          document.getElementById(kind + 'Video_' + i).srcObject = stream;
+        } catch (e) {
+          showRowStatus(i, 'Camera unavailable: ' + (e && e.message ? e.message : e) + '. Use file upload instead.', false);
+        }
+      }
+
+      function captureFromCamera(kind, i) {
+        const video = document.getElementById(kind + 'Video_' + i);
+        if (!video.videoWidth) {
+          showRowStatus(i, 'Start the camera before capturing.', false);
+          return;
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+        applyPhoto(kind, i, dataUrl.split(',')[1], dataUrl);
+      }
+
+      async function onPhotoFile(kind, i) {
+        const base64 = await fileToBase64(kind + 'Photo_' + i);
+        if (!base64) return;
+        applyPhoto(kind, i, base64, 'data:image/jpeg;base64,' + base64);
+      }
+
+      function applyPhoto(kind, i, base64, dataUrl) {
+        if (kind === 'student') {
+          tabs[i].studentPhotoBase64 = base64;
+        } else if (kind === 'college') {
+          tabs[i].collegePhotoBase64 = base64;
+        } else {
+          tabs[i].aadharPhotoBase64 = base64;
+        }
+        showPreview(kind, i, dataUrl);
+
+        if (kind === 'aadhar') {
+          scanAadhar(i, base64);
+        } else if (kind === 'college') {
+          scanCollegeId(i, base64);
+        } else {
+          showRowStatus(i, 'Student photo captured.', true);
+        }
+      }
+
+      function scanAadhar(i, base64) {
+        showRowStatus(i, 'Scanning Aadhaar with AI...', true);
+        google.script.run
+          .withSuccessHandler(res => {
+            tabs[i].aadharName = res.name || '';
+            const nameField = document.getElementById('name_' + i);
+            if (res.name && !nameField.value.trim()) {
+              nameField.value = res.name;
+              refreshTabLabel(i);
+            }
+            if (res.aadharNumber) {
+              document.getElementById('aadhar_' + i).value = res.aadharNumber;
+            }
+            showRowStatus(i, 'Aadhaar scanned. Verify the details below.', true);
+            renderExtractedNames(i);
+          })
+          .withFailureHandler(err => showRowStatus(i, err && err.message ? err.message : 'Aadhaar scan failed.', false))
+          .analyzeAadhar({ aadharPhotoBase64: base64 });
+      }
+
+      function scanCollegeId(i, base64) {
+        showRowStatus(i, 'Scanning college ID with AI...', true);
+        google.script.run
+          .withSuccessHandler(res => {
+            tabs[i].collegeName = res.name || '';
+            const nameField = document.getElementById('name_' + i);
+            if (res.name && !nameField.value.trim()) {
+              nameField.value = res.name;
+              refreshTabLabel(i);
+            }
+            showRowStatus(i, 'College ID scanned. Verify before saving.', true);
+            renderExtractedNames(i);
+          })
+          .withFailureHandler(err => showRowStatus(i, err && err.message ? err.message : 'College ID scan failed.', false))
+          .analyzeCollegeId({ collegePhotoBase64: base64 });
+      }
+
+      function renderExtractedNames(i) {
+        const parts = [];
+        if (tabs[i].aadharName) parts.push('Aadhaar: ' + tabs[i].aadharName);
+        if (tabs[i].collegeName) parts.push('College ID: ' + tabs[i].collegeName);
+
+        const agreementNames = (flatAgreement.students || []).map(s => s.name).filter(Boolean);
+        const docName = tabs[i].aadharName || tabs[i].collegeName || document.getElementById('name_' + i).value.trim();
+        if (agreementNames.length && docName) {
+          const inAgreement = agreementNames.some(n => normalizeName(n) === normalizeName(docName));
+          parts.push('In agreement: ' + (inAgreement ? 'yes' : 'no'));
+        }
+        document.getElementById('names_' + i).textContent = parts.length ? 'Extracted — ' + parts.join('  |  ') : '';
+      }
+
+      // ---------- Name matching ----------
+
+      function normalizeName(s) {
+        return String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
+      }
+
+      function nameMismatch(i) {
+        const docNames = [
+          { label: 'Aadhaar', value: tabs[i].aadharName },
+          { label: 'College ID', value: tabs[i].collegeName }
+        ].filter(s => s.value && s.value.trim());
+
+        // 1. Aadhaar and College ID names must agree with each other.
+        if (docNames.length >= 2) {
+          const baseline = normalizeName(docNames[0].value);
+          if (!docNames.every(s => normalizeName(s.value) === baseline)) {
+            return docNames.map(s => s.label + ' = "' + s.value + '"').join('\n');
+          }
+        }
+
+        // 2. The student's name must appear somewhere in the per-flat agreement's list.
+        const agreementNames = (flatAgreement.students || []).map(s => s.name).filter(Boolean);
+        if (agreementNames.length && docNames.length) {
+          const studentName = normalizeName(docNames[0].value);
+          const inAgreement = agreementNames.some(n => normalizeName(n) === studentName);
+          if (!inAgreement) {
+            return docNames.map(s => s.label + ' = "' + s.value + '"').join('\n') +
+              '\nAgreement names: ' + agreementNames.join(', ') +
+              '\n(this student was not found in the agreement)';
+          }
+        }
+
+        return null;
+      }
+
+      // ---------- Files ----------
+
+      function blobToBase64(blob) {
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result).split(',')[1]);
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        });
+      }
+
+      async function fileToBase64(inputId) {
+        const fileInput = document.getElementById(inputId);
+        if (!fileInput.files || !fileInput.files[0]) return '';
+        return blobToBase64(fileInput.files[0]);
+      }
+
+      // ---------- Flat load + agreement ----------
+
+      function loadFlat() {
+        const flat = document.getElementById('flat').value.trim();
+        if (!flat || flat === lastLoadedFlat) return;
+        lastLoadedFlat = flat;
+
+        showFlatStatus('Loading students for flat ' + flat + '...', true);
+        google.script.run
+          .withSuccessHandler(res => populateFlat(res || {}))
+          .withFailureHandler(err => {
+            lastLoadedFlat = '';
+            showFlatStatus(err && err.message ? err.message : 'Failed to load flat.', false);
+          })
+          .getStudentsByFlat(flat);
+      }
+
+      function populateFlat(res) {
+        const students = res.students || [];
+        flatAgreement = res.agreementInfo || {};
+
+        for (let i = 0; i < MAX_STUDENTS; i++) {
+          clearTab(i);
+        }
+
+        students.slice(0, MAX_STUDENTS).forEach((s, i) => {
+          tabs[i].studentId = s.studentId || '';
+          document.getElementById('aadhar_' + i).value = s.aadharNumber || '';
+          document.getElementById('name_' + i).value = s.name || '';
+          document.getElementById('phone_' + i).value = s.phone || '';
+          document.getElementById('notes_' + i).value = s.notes || '';
+          renderExistingPhoto('studentExisting_' + i, s.photoUrl, 'student photo');
+          renderExistingPhoto('aadharExisting_' + i, s.aadharPhotoUrl, 'aadhar photo');
+          refreshTabLabel(i);
+          renderExtractedNames(i);
+        });
+
+        renderAgreementInfo(res.agreementUrl, flatAgreement);
+        prefillFromAgreement(flatAgreement.students);
+
+        const count = Math.min(students.length, MAX_STUDENTS);
+        showFlatStatus(
+          count
+            ? count + ' student(s) loaded. Empty tabs are available for new students.'
+            : 'No students yet for this flat. Start adding them.',
+          true
+        );
+        switchTab(0);
+      }
+
+      function renderExistingPhoto(containerId, url, label) {
+        const el = document.getElementById(containerId);
+        el.innerHTML = url
+          ? 'Existing ' + label + ': <a href="' + url + '" target="_blank">view</a>. Upload a new file only to replace it.'
+          : '';
+      }
+
+      function renderAgreementInfo(url, info) {
+        const box = document.getElementById('agreementInfo');
+        info = info || {};
+        const rows = [];
+        if (url) rows.push('<div>File: <a href="' + url + '" target="_blank">view agreement</a></div>');
+
+        const students = info.students || [];
+        students.forEach((s, idx) => {
+          const bits = [];
+          if (s.name) bits.push(s.name);
+          if (s.aadharNumber) bits.push('Aadhaar ' + s.aadharNumber);
+          if (s.phone) bits.push('Ph ' + s.phone);
+          if (s.fatherName) bits.push('F/G: ' + s.fatherName);
+          if (s.address) bits.push(s.address);
+          if (bits.length) rows.push('<div>' + (idx + 1) + '. ' + bits.join(' — ') + '</div>');
+        });
+
+        if (info.error) rows.push('<div class="err">Extraction note: ' + info.error + '</div>');
+
+        if (rows.length) {
+          box.innerHTML = rows.join('');
+          box.style.display = 'block';
+        } else {
+          box.innerHTML = '';
+          box.style.display = 'none';
+        }
+      }
+
+      // Pre-fill empty tabs (name/Aadhaar/phone) from the agreement's student list,
+      // skipping students already present (saved or typed) in a tab.
+      function prefillFromAgreement(list) {
+        if (!list || !list.length) return;
+
+        const present = new Set();
+        for (let k = 0; k < MAX_STUDENTS; k++) {
+          const n = normalizeName(document.getElementById('name_' + k).value);
+          if (n) present.add(n);
+        }
+
+        let a = 0;
+        for (let i = 0; i < MAX_STUDENTS && a < list.length; i++) {
+          if (tabs[i].studentId || document.getElementById('name_' + i).value.trim()) continue;
+
+          while (a < list.length && (!list[a].name || present.has(normalizeName(list[a].name)))) a++;
+          if (a >= list.length) break;
+
+          const s = list[a++];
+          document.getElementById('name_' + i).value = s.name || '';
+          document.getElementById('aadhar_' + i).value = s.aadharNumber || '';
+          document.getElementById('phone_' + i).value = s.phone || '';
+          present.add(normalizeName(s.name));
+          refreshTabLabel(i);
+          renderExtractedNames(i);
+        }
+      }
+
+      // Render PDF page thumbnails with a checkbox each so the user picks
+      // which pages to send to AI. Image files have no page selection.
+      async function onAgreementFileChosen() {
+        agreementPdfDoc = null;
+        agreementIsPdf = false;
+        const pagesBox = document.getElementById('agreementPages');
+        const grid = document.getElementById('pagesGrid');
+        grid.innerHTML = '';
+        pagesBox.style.display = 'none';
+
+        const fileInput = document.getElementById('agreementFile');
+        const file = fileInput.files && fileInput.files[0];
+        if (!file) return;
+
+        const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
+        if (!isPdf) {
+          setAgreementStatus('Image agreement — the whole image will be processed.', true);
+          return;
+        }
+        if (!window.pdfjsLib) {
+          setAgreementStatus('Page preview unavailable; the whole PDF will be processed.', true);
+          return;
+        }
+
+        agreementIsPdf = true;
+        setAgreementStatus('Rendering page previews...', true);
+        try {
+          const buffer = await file.arrayBuffer();
+          agreementPdfDoc = await pdfjsLib.getDocument({ data: buffer }).promise;
+
+          for (let p = 1; p <= agreementPdfDoc.numPages; p++) {
+            const page = await agreementPdfDoc.getPage(p);
+            const viewport = page.getViewport({ scale: 0.4 });
+            const canvas = document.createElement('canvas');
+            canvas.width = viewport.width;
+            canvas.height = viewport.height;
+            await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+
+            const wrap = document.createElement('div');
+            wrap.className = 'page-thumb selected';
+            const label = document.createElement('label');
+            const cb = document.createElement('input');
+            cb.type = 'checkbox';
+            cb.checked = true;
+            cb.dataset.page = p;
+            cb.onchange = () => wrap.classList.toggle('selected', cb.checked);
+            label.appendChild(cb);
+            label.appendChild(document.createTextNode('Page ' + p));
+            wrap.appendChild(canvas);
+            wrap.appendChild(label);
+            grid.appendChild(wrap);
+          }
+
+          pagesBox.style.display = 'block';
+          setAgreementStatus('Select the page(s) with student details, then Save & Read.', true);
+        } catch (e) {
+          agreementPdfDoc = null;
+          setAgreementStatus('Could not preview PDF; the whole file will be processed.', true);
+        }
+      }
+
+      function selectedPageNumbers() {
+        const boxes = document.querySelectorAll('#pagesGrid input[type="checkbox"]');
+        const pages = [];
+        boxes.forEach(b => { if (b.checked) pages.push(parseInt(b.dataset.page, 10)); });
+        return pages;
+      }
+
+      async function renderPdfPageToBase64(pageNum, scale) {
+        const page = await agreementPdfDoc.getPage(pageNum);
+        const viewport = page.getViewport({ scale: scale });
+        const canvas = document.createElement('canvas');
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+        await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+        return canvas.toDataURL('image/jpeg', 0.7).split(',')[1];
+      }
+
+      // Promise wrapper around a google.script.run server call.
+      function runServer(fn, args) {
+        return new Promise((resolve, reject) => {
+          const runner = google.script.run.withSuccessHandler(resolve).withFailureHandler(reject);
+          runner[fn].apply(runner, args || []);
+        });
+      }
+
+      async function saveAgreement() {
+        const flat = document.getElementById('flat').value.trim();
+        if (!flat) {
+          setAgreementStatus('Enter the flat number first.', false);
+          return;
+        }
+        const fileInput = document.getElementById('agreementFile');
+        if (!fileInput.files || !fileInput.files[0]) {
+          setAgreementStatus('Choose an agreement file first.', false);
+          return;
+        }
+        const file = fileInput.files[0];
+
+        try {
+          // 1) Build the page images to read (selected PDF pages, or the whole image).
+          let pageImages = [];
+          if (agreementIsPdf && agreementPdfDoc) {
+            const pages = selectedPageNumbers();
+            if (!pages.length) {
+              setAgreementStatus('Select at least one page to process.', false);
+              return;
+            }
+            setAgreementStatus('Preparing ' + pages.length + ' page(s)...', true);
+            for (const p of pages) {
+              pageImages.push(await renderPdfPageToBase64(p, 1.2));
+            }
+          } else {
+            pageImages = [await fileToBase64('agreementFile')];
+          }
+
+          // 2) Read the agreement (small payload — just the selected pages).
+          setAgreementStatus('Reading agreement with AI...', true);
+          const readRes = await runServer('extractFlatAgreement', [{ flatNumber: flat, pageImages: pageImages }]);
+          flatAgreement = readRes.agreementInfo || {};
+          const found = (flatAgreement.students || []).length;
+          const note = flatAgreement.error ? ' (AI note: ' + flatAgreement.error + ')' : '';
+          setAgreementStatus('Agreement read' + (found ? ' — ' + found + ' student(s) found.' : '.') + note + ' Storing original...', true);
+          renderAgreementInfo('', flatAgreement);
+          prefillFromAgreement(flatAgreement.students);
+          for (let i = 0; i < MAX_STUDENTS; i++) renderExtractedNames(i);
+
+          // 3) Store the full original separately, in chunks (handles large scanned PDFs).
+          const base64 = await fileToBase64('agreementFile');
+          const CHUNK = 768 * 1024;
+          await runServer('agreementUploadInit', [flat]);
+          for (let off = 0; off < base64.length; off += CHUNK) {
+            await runServer('agreementUploadChunk', [flat, base64.slice(off, off + CHUNK)]);
+            const pct = Math.min(100, Math.round((off + CHUNK) / base64.length * 100));
+            setAgreementStatus('Storing original... ' + pct + '%', true);
+          }
+          const finRes = await runServer('agreementUploadFinish', [flat, file.name, file.type]);
+
+          renderAgreementInfo(finRes.fileUrl, flatAgreement);
+          setAgreementStatus('Agreement read' + (found ? ' (' + found + ' students)' : '') + ' and original stored.', true);
+        } catch (err) {
+          console.error('Agreement save failed', err);
+          setAgreementStatus(err && err.message ? err.message : 'Agreement save failed.', false);
+        }
+      }
+
+      function setAgreementStatus(text, ok) {
+        const el = document.getElementById('agreementStatus');
+        el.className = 'note ' + (ok ? 'ok' : 'err');
+        el.textContent = text;
+      }
+
+      // ---------- Save student ----------
+
+      function saveRow(i) {
+        const flat = document.getElementById('flat').value.trim();
+        if (!flat) {
+          showRowStatus(i, 'Enter the flat number first.', false);
+          return;
+        }
+
+        const mismatch = nameMismatch(i);
+        if (mismatch) {
+          const proceed = window.confirm(
+            'Name mismatch across documents:\n\n' + mismatch +
+            '\n\nClick OK to save anyway (mismatch accepted), or Cancel to review.'
+          );
+          if (!proceed) {
+            showRowStatus(i, 'Save cancelled — names do not match. Review the documents.', false);
+            return;
+          }
+        }
+
+        showRowStatus(i, 'Saving...', true);
+
+        const payload = {
+          studentId: tabs[i].studentId || '',
+          houseId: flat,
+          name: document.getElementById('name_' + i).value.trim(),
+          phone: document.getElementById('phone_' + i).value.trim(),
+          aadharNumber: document.getElementById('aadhar_' + i).value.trim(),
+          notes: document.getElementById('notes_' + i).value.trim(),
+          studentPhotoBase64: tabs[i].studentPhotoBase64,
+          aadharPhotoBase64: tabs[i].aadharPhotoBase64,
+          collegePhotoBase64: tabs[i].collegePhotoBase64
+        };
+
+        const isNew = !payload.studentId;
+
+        google.script.run
+          .withSuccessHandler(res => {
+            tabs[i].studentId = res.studentId;
+            showRowStatus(i, (isNew ? 'Saved. Student ID: ' : 'Updated. Student ID: ') + res.studentId, true);
+            if (isNew && res.whatsappLink) {
+              window.open(res.whatsappLink, '_blank');
+            }
+          })
+          .withFailureHandler(err => showRowStatus(i, err && err.message ? err.message : 'Save failed.', false))
+          .saveStudent(payload);
+      }
+
+      function runExport() {
+        const status = document.getElementById('status');
+        status.textContent = 'Preparing CSV export...';
+        status.className = 'status ok';
+        google.script.run
+          .withSuccessHandler(res => {
+            status.textContent = 'CSV ready. Opening file...';
+            status.className = 'status ok';
+            window.open(res.fileUrl, '_blank');
+          })
+          .withFailureHandler(err => {
+            status.textContent = err && err.message ? err.message : 'Export failed.';
+            status.className = 'status err';
+          })
+          .exportForIdCard();
+      }
+    </script>
+  </body>
+</html>
