@@ -128,7 +128,12 @@
     .cam-placeholder:hover { border-color: var(--accent); background: #eef2fb; color: var(--pri); }
     .cam-placeholder .ph-icon { font-size: 34px; line-height: 1; }
     .cam-placeholder .ph-text { font-size: 13px; font-weight: 600; }
-    .photo .camshot { width: 100%; max-width: 240px; border-radius: 8px; border: 1px solid var(--line); margin-top: 8px; display: none; }
+    .photo-wrap { position: relative; display: none; margin-top: 8px; max-width: 240px; }
+    .photo .camshot { width: 100%; border-radius: 8px; border: 1px solid var(--line); display: block; }
+    .photo-x { position: absolute; top: 6px; right: 6px; width: 26px; height: 26px; padding: 0; border: none;
+               border-radius: 50%; background: rgba(0,0,0,.62); color: #fff; font-size: 18px; line-height: 1;
+               cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: var(--sh-sm); }
+    .photo-x:hover { background: var(--err); }
     .photo-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
     .photo-actions button { padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: #eef2fb;
                             color: var(--pri); font-weight: 600; cursor: pointer; font-size: 13px; }
@@ -333,7 +338,10 @@
             <div class="ph-text">Click to take a photo</div>
           </div>
           <video id="camVideo" class="cam" autoplay playsinline muted></video>
-          <img id="photoPreview" class="camshot" alt="captured photo">
+          <div id="photoWrap" class="photo-wrap">
+            <img id="photoPreview" class="camshot" alt="captured photo">
+            <button class="photo-x" onclick="removePhoto()" title="Remove photo">&times;</button>
+          </div>
           <div id="photoExisting" class="hint"></div>
           <div class="photo-actions">
             <button onclick="capturePhoto()">Capture</button>
@@ -959,9 +967,9 @@
       var existing = s._docs && s._docs.photo;
       if (existing) {
         pv.src = 'data:' + (existing.mime || 'image/jpeg') + ';base64,' + existing.base64;
-        pv.style.display = 'block';
+        document.getElementById('photoWrap').style.display = 'inline-block';
       } else {
-        pv.src = ''; pv.style.display = 'none';
+        pv.src = ''; document.getElementById('photoWrap').style.display = 'none';
       }
       document.getElementById('dlPhotoBtn').disabled = !existing;
       document.getElementById('editPhotoBtn').disabled = !existing;
@@ -1025,11 +1033,26 @@
     }
 
     function showShot(url) {
-      var pv = document.getElementById('photoPreview'); pv.src = url; pv.style.display = 'block';
+      var pv = document.getElementById('photoPreview'); pv.src = url;
+      document.getElementById('photoWrap').style.display = 'inline-block';
       document.getElementById('savePhotoBtn').disabled = false;
       document.getElementById('dlPhotoBtn').disabled = false;
       document.getElementById('editPhotoBtn').disabled = false;
       document.getElementById('photoStatus').textContent = '';
+    }
+
+    // Discard the currently-shown/captured photo (does not delete an already-saved photo
+    // from Drive — capture or upload a new one and Save to replace that).
+    function removePhoto() {
+      capturedPhoto = '';
+      var pv = document.getElementById('photoPreview'); pv.src = '';
+      document.getElementById('photoWrap').style.display = 'none';
+      document.getElementById('photoFile').value = '';
+      document.getElementById('photoCapture').value = '';
+      document.getElementById('savePhotoBtn').disabled = true;
+      document.getElementById('dlPhotoBtn').disabled = true;
+      document.getElementById('editPhotoBtn').disabled = true;
+      document.getElementById('photoStatus').textContent = 'Photo removed. Capture or upload a new one.';
     }
 
     function savePhoto() {
