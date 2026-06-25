@@ -901,6 +901,7 @@
     function mkDate(y, mo, d) { var dt = new Date(y, mo, d); return isNaN(dt.getTime()) ? null : dt; }
     function parseDate(v) {
       v = String(v == null ? '' : v).trim(); if (!v) return null;
+      v = v.replace(/(\d{1,2})\s*(st|nd|rd|th)\b/gi, '$1');   // 7th → 7, 31st → 31, etc.
       var m;
       // 31-Jul-2026 / 31 July 2026 / 31/Jul/2026
       m = v.match(/^(\d{1,2})[\s\-\/.]+([A-Za-z]{3,})[\s\-\/.]+(\d{2,4})$/);
