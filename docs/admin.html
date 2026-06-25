@@ -342,7 +342,9 @@
 
     <!-- CENTER: tabs + details -->
     <div class="pane center">
-      <div class="pane-head">Students <span class="hint" id="centerHint"></span>
+      <div class="pane-head">Students
+        <button class="mini" id="copyRowBtn" onclick="copyStudentRow()" title="Copy this student's row" style="display:none">📋</button>
+        <span class="hint" id="centerHint"></span>
         <span class="head-actions">
           <select id="studentSelect" onchange="switchTab(this.selectedIndex)" style="display:none"></select>
           <button class="mini" id="editDetailsBtn" onclick="startEditDetails()" title="Edit details" style="display:none">✎ Edit</button>
@@ -921,26 +923,37 @@
       var d = parseDate(v);
       return d ? (ordinal(d.getDate()) + ' ' + MONTHS[d.getMonth()] + ' ' + d.getFullYear()) : String(v == null ? '' : v).trim();
     }
+    // One student → the 8 column values (tab-joined elsewhere).
+    function studentRowArr(s, flat, validFrom) {
+      return [
+        s.Name || '',
+        s.HouseId || flat,
+        validFrom,
+        fmtDate(s.IdValidUpto),        // ValidTill
+        maskTail(s.AadharNumber),
+        maskTail(s.Phone),
+        s.AssignedId || '',            // ID = assigned student id
+        'N'                            // Update — always N
+      ].map(tsvCell).join('\t');
+    }
     function copyCsv() {
       if (!students.length) return setStatus('Load a flat first.', false);
       var flat = document.getElementById('flat').value.trim();
       var validFrom = fmtDate(document.getElementById('fAgreementDate').value.trim());   // flat agreement date
       var rows = [CSV_HEADER.join('\t')];
-      students.forEach(function (s) {
-        rows.push([
-          s.Name || '',
-          s.HouseId || flat,
-          validFrom,
-          fmtDate(s.IdValidUpto),        // ValidTill
-          maskTail(s.AadharNumber),
-          maskTail(s.Phone),
-          s.AssignedId || '',            // ID = assigned student id
-          'N'                            // Update — always N
-        ].map(tsvCell).join('\t'));
-      });
-      var csv = rows.join('\r\n');
-      copyText(csv)
+      students.forEach(function (s) { rows.push(studentRowArr(s, flat, validFrom)); });
+      copyText(rows.join('\r\n'))
         .then(function () { setStatus(students.length + ' student row(s) copied — paste into a sheet.', true); })
+        .catch(function () { setStatus('Could not access clipboard — see the browser prompt.', false); });
+    }
+    // Copy just the currently-selected student's row (no header) — for appending one record.
+    function copyStudentRow() {
+      var s = students[activeTab];
+      if (!s) return setStatus('Pick a student first.', false);
+      var flat = document.getElementById('flat').value.trim();
+      var validFrom = fmtDate(document.getElementById('fAgreementDate').value.trim());
+      copyText(studentRowArr(s, flat, validFrom))
+        .then(function () { setStatus('Copied ' + (s.Name || 'record') + ' to clipboard.', true); })
         .catch(function () { setStatus('Could not access clipboard — see the browser prompt.', false); });
     }
     // Clipboard write with a textarea/execCommand fallback for restricted contexts.
@@ -1005,8 +1018,10 @@
     function renderTabs() {
       var sel = document.getElementById('studentSelect');
       var editBtn = document.getElementById('editDetailsBtn');
+      var copyBtn = document.getElementById('copyRowBtn');
       sel.innerHTML = '';
-      if (!students.length) { sel.style.display = 'none'; editBtn.style.display = 'none'; return; }
+      if (!students.length) { sel.style.display = 'none'; editBtn.style.display = 'none'; copyBtn.style.display = 'none'; return; }
+      copyBtn.style.display = '';
       students.forEach(function (s, i) {
         var opt = document.createElement('option');
         opt.textContent = (s.Name || ('Student ' + (i + 1))) + ((s.PhotoUrl && s.SignatureUrl) ? '  ✓ captured' : '');
