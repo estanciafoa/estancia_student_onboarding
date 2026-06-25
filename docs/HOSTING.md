@@ -19,7 +19,7 @@ Set the API token (Apps Script editor → **Project Settings → Script properti
 
 | Property | Value |
 |----------|-------|
-| `API_TOKEN` | a secret string, e.g. `estancia-2026-x9f3kq` |
+| `API_TOKEN` | a long random secret string of your choosing (do not commit it anywhere) |
 
 > Re-deploy a **new version** whenever you change `Code.gs`.
 
