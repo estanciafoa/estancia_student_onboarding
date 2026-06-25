@@ -308,7 +308,6 @@
       <div class="pane-head">
         Agreement
         <span class="hint" id="agreeHint"></span>
-        <span class="hint">· shift-drag to magnify</span>
         <span class="head-actions">
           <span class="zoomctl">
             <button onclick="zoomPane('L',-1)" title="Zoom out">&minus;</button>
@@ -1398,7 +1397,7 @@
       var body = document.getElementById('agreeBody');
       var hint = document.getElementById('agreeHint');
       if (!ag || (!ag.base64 && !ag.url)) {
-        hint.textContent = 'not uploaded';
+        hint.textContent = '';
         setPannable(body, false);
         body.innerHTML = '<div class="uploadprompt">No agreement uploaded for this flat.' +
           '<br><label class="btn" for="agreeFile">Upload agreement</label></div>';
