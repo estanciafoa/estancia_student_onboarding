@@ -894,17 +894,43 @@
       if (d.length <= 4) return d;
       return new Array(d.length - 4 + 1).join('X') + d.slice(-4);
     }
+    // Format a date value as "31st July 2026". Leaves unparseable text unchanged.
+    var MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+    var MON3 = { jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11 };
+    function ordinal(n) { var s = ['th','st','nd','rd'], v = n % 100; return n + (s[(v - 20) % 10] || s[v] || s[0]); }
+    function mkDate(y, mo, d) { var dt = new Date(y, mo, d); return isNaN(dt.getTime()) ? null : dt; }
+    function parseDate(v) {
+      v = String(v == null ? '' : v).trim(); if (!v) return null;
+      var m;
+      // 31-Jul-2026 / 31 July 2026 / 31/Jul/2026
+      m = v.match(/^(\d{1,2})[\s\-\/.]+([A-Za-z]{3,})[\s\-\/.]+(\d{2,4})$/);
+      if (m && MON3[m[2].slice(0, 3).toLowerCase()] != null) { var y = +m[3]; if (y < 100) y += 2000; return mkDate(y, MON3[m[2].slice(0, 3).toLowerCase()], +m[1]); }
+      // 2026-07-31 (ISO)
+      m = v.match(/^(\d{4})[\-\/.](\d{1,2})[\-\/.](\d{1,2})$/);
+      if (m) return mkDate(+m[1], +m[2] - 1, +m[3]);
+      // 31-07-2026 / 31/07/2026 (day-first numeric)
+      m = v.match(/^(\d{1,2})[\-\/.](\d{1,2})[\-\/.](\d{2,4})$/);
+      if (m) { var yr = +m[3]; if (yr < 100) yr += 2000; return mkDate(yr, +m[2] - 1, +m[1]); }
+      // Month YYYY (no day) → 1st of that month
+      m = v.match(/^([A-Za-z]{3,})[\s\-\/.]+(\d{4})$/);
+      if (m && MON3[m[1].slice(0, 3).toLowerCase()] != null) return mkDate(+m[2], MON3[m[1].slice(0, 3).toLowerCase()], 1);
+      var t = Date.parse(v); return isNaN(t) ? null : new Date(t);
+    }
+    function fmtDate(v) {
+      var d = parseDate(v);
+      return d ? (ordinal(d.getDate()) + ' ' + MONTHS[d.getMonth()] + ' ' + d.getFullYear()) : String(v == null ? '' : v).trim();
+    }
     function copyCsv() {
       if (!students.length) return setStatus('Load a flat first.', false);
       var flat = document.getElementById('flat').value.trim();
-      var validFrom = document.getElementById('fAgreementDate').value.trim();   // flat agreement date
+      var validFrom = fmtDate(document.getElementById('fAgreementDate').value.trim());   // flat agreement date
       var rows = [CSV_HEADER.join('\t')];
       students.forEach(function (s) {
         rows.push([
           s.Name || '',
           s.HouseId || flat,
           validFrom,
-          s.IdValidUpto || '',           // ValidTill
+          fmtDate(s.IdValidUpto),        // ValidTill
           maskTail(s.AadharNumber),
           maskTail(s.Phone),
           s.AssignedId || '',            // ID = assigned student id
