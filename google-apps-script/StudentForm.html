@@ -187,6 +187,49 @@
     var current = 0;
     var visited = {}; // steps the user has opened — a tick shows only after a step is visited
 
+    // --- Auto-saving draft (kept for 1 day, then auto-expires) ---------------
+    // As the resident fills the form, values are stored in this browser so a refresh
+    // or accidental close doesn't lose their work. The draft is stamped with a time
+    // and ignored / removed once older than 24h, and cleared on a successful submit.
+    var DRAFT_KEY = 'estanciaStudentDraft';
+    var DRAFT_TTL = 24 * 60 * 60 * 1000;   // 1 day in ms
+    var DRAFT_FIELDS = ['flat', 'ownerName', 'ownerMobile', 'ownerEmail', 'caretakerName', 'caretakerNumber',
+      'tenancyPeriod', 'agreementDate', 'name', 'mobile', 'sex', 'email', 'aadharNumber', 'address',
+      'parentName', 'parentMobile', 'collegeStudentId', 'collegeName', 'courseName', 'academicYear', 'idValidUpto'];
+
+    function saveDraft() {
+      var fields = {};
+      DRAFT_FIELDS.forEach(function (id) { var el = document.getElementById(id); if (el) fields[id] = el.value; });
+      var data = { savedAt: Date.now(), fields: fields, docs: docs };
+      try {
+        localStorage.setItem(DRAFT_KEY, JSON.stringify(data));
+      } catch (e) {
+        // storage full (uploaded files are large) — keep the typed fields, drop the files
+        try { localStorage.setItem(DRAFT_KEY, JSON.stringify({ savedAt: data.savedAt, fields: fields })); } catch (_) {}
+      }
+    }
+
+    function loadDraft() {
+      try {
+        var raw = localStorage.getItem(DRAFT_KEY);
+        if (!raw) return;
+        var data = JSON.parse(raw);
+        if (!data || !data.savedAt || (Date.now() - data.savedAt) > DRAFT_TTL) { localStorage.removeItem(DRAFT_KEY); return; }
+        var f = data.fields || {};
+        DRAFT_FIELDS.forEach(function (id) {
+          var el = document.getElementById(id);
+          if (el && f[id] != null && f[id] !== '') el.value = f[id];
+        });
+        if (data.docs) {
+          docs.aadhar = data.docs.aadhar || [];
+          docs.college = data.docs.college || [];
+          renderList('aadhar'); renderList('college');
+        }
+      } catch (_) {}
+    }
+
+    function clearDraft() { try { localStorage.removeItem(DRAFT_KEY); } catch (_) {} }
+
     document.addEventListener('DOMContentLoaded', function () {
       if (INIT_FLAT) document.getElementById('flat').value = INIT_FLAT;
       buildPills();
@@ -196,8 +239,14 @@
       });
       // Keep the tab ticks current as the user types.
       document.getElementById('form').addEventListener('input', updateTicks);
+      // Persist a 1-day auto-expiring draft as fields/selects change.
+      document.getElementById('form').addEventListener('input', saveDraft);
+      document.getElementById('form').addEventListener('change', saveDraft);
+      loadDraft();                                                     // restore any unexpired draft …
+      if (INIT_FLAT) document.getElementById('flat').value = INIT_FLAT;  // … but a ?flat= link wins
       setActive('aadhar');
       showStep(0);
+      updateTicks();
     });
 
     // Load the Estancia logo (estancialogo.jpg) from Drive via the backend.
@@ -349,6 +398,7 @@
         row.appendChild(span); row.appendChild(rm);
         list.appendChild(row);
       });
+      saveDraft();   // keep the draft in sync when files are added / removed
     }
 
     // --- Helpers / submit ----------------------------------------------------
@@ -382,6 +432,7 @@
       google.script.run
         .withSuccessHandler(function (r) {
           if (r && r.ok) {
+            clearDraft();
             document.getElementById('form').style.display = 'none';
             document.getElementById('done').style.display = 'block';
             window.scrollTo(0, 0);
