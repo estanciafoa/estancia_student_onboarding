@@ -620,7 +620,7 @@
       el.addEventListener('pointerdown', function (e) {
         if (e.button && e.button !== 0) return;     // left button / touch only
         if (e.shiftKey) return;                     // shift-drag = snip & magnify, not pan
-        if (e.target.closest && e.target.closest('button')) return; // let buttons (Download) work
+        if (e.target.closest && e.target.closest('button, label, a, input, select')) return; // let controls (Download, Upload label, links) work
         down = true; moved = false;
         sx = e.clientX; sy = e.clientY; sl = el.scrollLeft; st = el.scrollTop;
         try { el.setPointerCapture(e.pointerId); } catch (_) {}
