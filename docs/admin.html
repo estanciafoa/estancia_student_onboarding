@@ -154,6 +154,18 @@
     .iconbtn.save { background: var(--ok); color: #fff; border-color: transparent; }
     .iconbtn.save:disabled { background: #9aa0a6; color: #fff; opacity: .7; }
 
+    /* agreement read + in-person signature (center pane) */
+    .sign { margin-top: 18px; padding-top: 16px; border-top: 1px solid #eef1f7; }
+    .terms { max-height: 200px; overflow-y: auto; border: 1px solid var(--line); border-radius: 10px;
+             padding: 10px 12px; font-size: 12.5px; line-height: 1.5; color: var(--pri); background: var(--grey); }
+    .terms p { margin: 6px 0; } .terms ol { margin: 8px 0; padding-left: 18px; } .terms li { margin: 5px 0; }
+    .agree-row { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; margin: 10px 0 0; color: var(--pri); cursor: pointer; }
+    .agree-row input { margin-top: 2px; flex: 0 0 auto; }
+    .sign-row { display: flex; gap: 12px; align-items: flex-start; flex-wrap: wrap; margin-top: 10px; }
+    #signPad { flex: 0 1 360px; width: 360px; max-width: 100%; height: 150px; background: #fff;
+               border: 1px solid var(--line); border-radius: 10px; touch-action: none; box-shadow: var(--sh-sm); cursor: crosshair; }
+    .sign-tools { display: flex; flex-direction: column; gap: 8px; flex: 0 0 auto; }
+
     /* passport-crop + color-correction photo editor */
     .peditor { position: fixed; inset: 0; background: rgba(0,0,0,.82); z-index: 80; display: none;
                align-items: center; justify-content: center; padding: 16px; }
@@ -384,6 +396,7 @@
     <div class="pane center">
       <div class="pane-head">Students
         <button class="mini" id="copyRowBtn" onclick="copyStudentRow()" title="Copy this student's row" style="display:none">📋</button>
+        <button class="mini" id="deleteRowBtn" onclick="deleteStudentRow()" title="Delete this student (e.g. a duplicate)" style="display:none">🗑</button>
         <span class="hint" id="centerHint"></span>
         <span class="head-actions">
           <select id="studentSelect" onchange="switchTab(this.selectedIndex)" style="display:none"></select>
@@ -420,6 +433,31 @@
           </div>
           <div id="photoExisting" class="photo-note"></div>
           <div id="photoStatus" class="hint" style="margin-top:6px"></div>
+        </div>
+
+        <div class="sign" id="signSection" style="display:none">
+          <div class="docgroup">Tripartite agreement — read &amp; sign</div>
+          <div class="terms" id="signTerms">
+            <p><strong>Resident undertaking (Annexure 2A).</strong> The resident named above confirms and undertakes that:</p>
+            <ol>
+              <li>The details provided are true and correct, and the Aadhaar &amp; College/Company ID are genuine and belong to me.</li>
+              <li>I will occupy the flat as a resident on rent for the stated tenancy period, and abide by the rules, byelaws and directions of the Estancia Flat Owners Association (EFOA) and the apartment management.</li>
+              <li>I will maintain good conduct, not cause nuisance to other residents, and use the premises only for lawful residential purposes.</li>
+              <li>I authorise the owner and EFOA to share these details with the police / authorities for statutory verification as required.</li>
+              <li>I will vacate the premises on expiry or termination of the tenancy, and keep EFOA updated of any change in my details.</li>
+            </ol>
+            <p class="hint">The full tripartite agreement is the Estancia Annexure 2A between the flat owner, the resident and EFOA (rendered in the Agreement pane).</p>
+          </div>
+          <label class="agree-row"><input type="checkbox" id="agreeCheck" onchange="updateSignSave()"> The resident has read the above and agrees to sign the tripartite agreement.</label>
+          <div class="sign-row">
+            <canvas id="signPad"></canvas>
+            <div class="sign-tools">
+              <button id="clearSignBtn" class="iconbtn" onclick="clearSign()" title="Clear signature">✕</button>
+              <button id="saveSignBtn" class="iconbtn save" onclick="saveSignature()" title="Save signature" disabled>✓</button>
+            </div>
+          </div>
+          <div id="signExisting" class="photo-note"></div>
+          <div id="signStatus" class="hint" style="margin-top:6px"></div>
         </div>
 
         <div class="assignid" id="assignSection" style="display:none">
@@ -553,6 +591,7 @@
       document.getElementById('docBody').addEventListener('dblclick', function (e) { zoomAtPoint('R', e); });
       setupRegionMagnifier(document.getElementById('agreeBody'));
       setupCropDrag();
+      initSignPad();
     });
 
     // ---------- shift-drag "snip & magnify" (agreement pane) ----------
@@ -924,6 +963,7 @@
       generateAnnexurePdf: function (p) { return [p.flat]; },
       saveFlatDetails: function (p) { return [p.flat, p.fields]; },
       saveStudentDetails: function (p) { return [p.studentId, p.fields]; },
+      deleteStudent: function (p) { return [p.studentId]; },
       assignStudentId: function (p) { return [p.studentId, p.assignedId]; },
       saveStudentVerification: function (p) { return [p]; },
       webUploadAgreement: function (p) { return [p.flat, p.base64, p.fileName, p.mimeType]; }
@@ -1110,6 +1150,40 @@
         .then(function () { setStatus('Copied ' + (s.Name || 'record') + ' to clipboard.', true); })
         .catch(function () { setStatus('Could not access clipboard — see the browser prompt.', false); });
     }
+    // Delete the selected student's row — for removing a duplicate submission (e.g. a
+    // resident who re-opened the form to re-sign). Confirms first; the Drive files are left.
+    function deleteStudentRow() {
+      var s = students[activeTab];
+      if (!s) return setStatus('Pick a student first.', false);
+      if (!confirm('Delete "' + (s.Name || 'this student') + '" from flat ' +
+          (s.HouseId || '') + '? This removes the row from the sheet and cannot be undone.')) return;
+      var btn = document.getElementById('deleteRowBtn'); btn.disabled = true;
+      setStatus('Deleting ' + (s.Name || 'record') + '…', true);
+      callServer('deleteStudent', { studentId: s.StudentId })
+        .then(function () {
+          students.splice(activeTab, 1);
+          if (activeTab >= students.length) activeTab = Math.max(0, students.length - 1);
+          document.getElementById('who').textContent = 'Flat ' + (s.HouseId || '') + ' · ' + students.length + ' student(s)';
+          setExportsEnabled(false);           // re-lock exports; a student must be re-approved
+          renderTabs();
+          if (students.length) switchTab(activeTab);
+          else {
+            document.getElementById('details').innerHTML = '<div class="empty">No students left for this flat.</div>';
+            document.getElementById('docBody').innerHTML = '<div class="empty">—</div>';
+            document.getElementById('assignSection').style.display = 'none';
+            document.getElementById('approveSection').style.display = 'none';
+            document.getElementById('photoSection').style.display = 'none';
+            document.getElementById('signSection').style.display = 'none';
+          }
+          btn.disabled = false;
+          setStatus('Deleted ' + (s.Name || 'record') + '.', true);
+        })
+        .catch(function (e) {
+          btn.disabled = false;
+          setStatus(e && e.message ? e.message : 'Delete failed.', false);
+        });
+    }
+
     // Clipboard write with a textarea/execCommand fallback for restricted contexts.
     function copyText(text) {
       if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -1233,9 +1307,11 @@
       var sel = document.getElementById('studentSelect');
       var editBtn = document.getElementById('editDetailsBtn');
       var copyBtn = document.getElementById('copyRowBtn');
+      var delBtn = document.getElementById('deleteRowBtn');
       sel.innerHTML = '';
-      if (!students.length) { sel.style.display = 'none'; editBtn.style.display = 'none'; copyBtn.style.display = 'none'; return; }
+      if (!students.length) { sel.style.display = 'none'; editBtn.style.display = 'none'; copyBtn.style.display = 'none'; delBtn.style.display = 'none'; return; }
       copyBtn.style.display = '';
+      delBtn.style.display = '';
       students.forEach(function (s, i) {
         var opt = document.createElement('option');
         opt.textContent = (s.Name || ('Student ' + (i + 1))) +
@@ -1256,6 +1332,7 @@
       renderDocs();
       renderAssign();
       renderPhoto();
+      renderSign();
     }
 
     // Editable student fields (label, sheet column).
@@ -1337,6 +1414,119 @@
       document.getElementById('photoExisting').innerHTML = existing
         ? 'Photo on file — Download saves it as <b>' + esc(getIdBase(s)) + '.jpeg</b>. Take or upload a new one to replace it.'
         : 'No photo yet — take one with the camera or upload an image.';
+    }
+
+    // ---------- center: read tripartite + capture signature (in person) ----------
+    // A dependency-free pad. The student reads the undertaking, ticks agreement, and signs
+    // on the device; saved via saveStudentVerification (the same call as the photo).
+    var signDrawn = false, signSized = false, signDrawing = false, signLast = null;
+
+    function initSignPad() {
+      var c = document.getElementById('signPad');
+      if (!c) return;
+      var ctx = c.getContext('2d');
+      function pos(e) { var r = c.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
+      c.addEventListener('pointerdown', function (e) {
+        sizeSignPad();
+        signDrawing = true; signLast = pos(e);
+        try { c.setPointerCapture(e.pointerId); } catch (_) {}
+        e.preventDefault();
+      });
+      c.addEventListener('pointermove', function (e) {
+        if (!signDrawing) return;
+        // A pen tablet fires many samples between frames; draw each so strokes are faithful.
+        var evts = (e.getCoalescedEvents && e.getCoalescedEvents()) || [];
+        if (!evts.length) evts = [e];
+        ctx.strokeStyle = '#12233b'; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+        evts.forEach(function (ev) {
+          var p = pos(ev);
+          // Pens report real 0..1 pressure; mouse/touch report 0 or 0.5 → fall back to a mid value.
+          var pr = ev.pressure > 0 ? ev.pressure : 0.5;
+          ctx.lineWidth = 1 + pr * 3;                 // ~1–4 px, tapered like real ink
+          ctx.beginPath(); ctx.moveTo(signLast.x, signLast.y); ctx.lineTo(p.x, p.y); ctx.stroke();
+          signLast = p;
+        });
+        if (!signDrawn) { signDrawn = true; updateSignSave(); }
+        e.preventDefault();
+      });
+      function end() { signDrawing = false; }
+      c.addEventListener('pointerup', end);
+      c.addEventListener('pointerleave', end);
+      c.addEventListener('pointercancel', end);
+    }
+
+    // Match the canvas backing store to its displayed size — only once it is visible
+    // (a hidden element measures 0). Runs once; keeps strokes crisp.
+    function sizeSignPad() {
+      var c = document.getElementById('signPad');
+      if (signSized || !c.clientWidth) return;
+      var dpr = window.devicePixelRatio || 1;
+      c.width = c.clientWidth * dpr; c.height = c.clientHeight * dpr;
+      c.getContext('2d').scale(dpr, dpr);
+      signSized = true;
+    }
+
+    function clearSignCanvas() {
+      var c = document.getElementById('signPad');
+      if (signSized) c.getContext('2d').clearRect(0, 0, c.width, c.height);
+      signDrawn = false;
+    }
+
+    function clearSign() { clearSignCanvas(); updateSignSave(); }
+
+    // Enable Save only once the resident has both agreed and drawn a signature.
+    function updateSignSave() {
+      var ok = signDrawn && document.getElementById('agreeCheck').checked;
+      document.getElementById('saveSignBtn').disabled = !ok;
+    }
+
+    function renderSign() {
+      var s = students[activeTab] || {};
+      document.getElementById('signSection').style.display = students.length ? 'block' : 'none';
+      if (!students.length) return;
+      sizeSignPad();                 // measurable now that the section is visible
+      clearSignCanvas();             // fresh pad for the newly selected student
+      document.getElementById('agreeCheck').checked = false;
+      updateSignSave();
+      document.getElementById('signStatus').textContent = '';
+      // Show the actual signature the resident drew on their own form, so the admin can
+      // check it. If it isn't right, the resident reopens the form and signs again (or the
+      // admin re-captures it in person here).
+      var sig = s._docs && s._docs.signature;
+      var box = document.getElementById('signExisting');
+      if (sig && sig.base64) {
+        box.innerHTML = 'Signed ✓ by ' + esc(s.Name || 'the resident') +
+          '. If the signature is not right, ask them to reopen their form and sign again.' +
+          '<br><img src="data:' + (sig.mime || 'image/png') + ';base64,' + sig.base64 +
+          '" style="max-width:280px;max-height:120px;margin-top:8px;border:1px solid #eef1f7;border-radius:8px;background:#fff;padding:4px">';
+      } else if (s.SignatureUrl) {
+        box.innerHTML = 'Signed ✓ — a signature is on file for ' + esc(s.Name || 'this student') + '. Re-sign only to replace it.';
+      } else {
+        box.textContent = 'No signature yet — the resident can sign on their own form, or capture it here in person.';
+      }
+    }
+
+    function saveSignature() {
+      var s = students[activeTab];
+      if (!s || !signDrawn) return;
+      if (!document.getElementById('agreeCheck').checked) {
+        document.getElementById('signStatus').textContent = 'Tick the agreement box first.'; return;
+      }
+      var b64 = document.getElementById('signPad').toDataURL('image/png').split(',')[1];
+      var btn = document.getElementById('saveSignBtn'); btn.disabled = true;
+      document.getElementById('signStatus').textContent = 'Saving signature…';
+      callServer('saveStudentVerification', { studentId: s.StudentId, signatureBase64: b64 })
+        .then(function () {
+          s.SignatureUrl = s.SignatureUrl || 'captured';   // mark present so the tab shows ✓
+          if (s._docs) s._docs.signature = null;            // force re-fetch on next load
+          document.getElementById('signStatus').textContent = 'Signature saved ✓';
+          document.getElementById('signExisting').innerHTML = 'Signed ✓ — signature saved for ' + esc(s.Name || 'this student') + '.';
+          renderTabs();
+        })
+        .catch(function (e) {
+          btn.disabled = false;
+          document.getElementById('signStatus').textContent = e && e.message ? e.message : 'Save failed.';
+        });
     }
 
     function startCam() {
@@ -1627,6 +1817,7 @@
       applyPaneZoom('R');
       setPannable(body, !!((d.aadhar && d.aadhar.length) || (d.college && d.college.length)));
       renderPhoto();   // docs now include the photo bytes → refresh the photo section
+      renderSign();    // …and the resident's signature image
     }
 
     function imagesHtml(imgs, emptyMsg, kind) {

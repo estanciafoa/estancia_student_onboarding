@@ -42,7 +42,8 @@ const STUDENTS_HEADER = [
   'SignatureUrl',
   'AssignedId',
   'CourseName',
-  'IdValidUpto'
+  'IdValidUpto',
+  'SignedAt'
 ];
 
 // Flat-level owner / caretaker block for the Annexure 2A header + page-5 undertaking.
@@ -118,6 +119,7 @@ function doPost(e) {
       case 'getCompareDocs':         result = getCompareDocs(payload.studentId); break;
       case 'getFlatAgreementDoc':    result = getFlatAgreementDoc(body.flat || payload.flat); break;
       case 'saveStudentDetails':     result = saveStudentDetails(payload.studentId, payload.fields); break;
+      case 'deleteStudent':          result = deleteStudent(body.studentId || (payload && payload.studentId)); break;
       case 'saveFlatDetails':        result = saveFlatDetails(body.flat || payload.flat, payload.fields); break;
       case 'assignStudentId':        result = assignStudentId(payload.studentId, payload.assignedId); break;
       case 'webUploadAgreement':     result = webUploadAgreement(payload.flat, payload.base64, payload.fileName, payload.mimeType); break;
@@ -458,6 +460,10 @@ function submitStudentSelf(payload) {
   const aadharPhotoUrl = aadharUrls.join(' , ');
   const collegeIdPhotoUrl = collegeUrls.join(' , ');
 
+  // On-screen signature the resident drew after reading & agreeing to the tripartite terms.
+  const sigB64 = String(payload.signatureBase64 || '').replace(/^data:[^,]+,/, '').trim();
+  const signatureUrl = sigB64 ? savePngInFolder_(folder, sigB64, base + '_sign.png') : '';
+
   const fields = {
     Timestamp: new Date(),
     StudentId: studentId,
@@ -480,6 +486,13 @@ function submitStudentSelf(payload) {
     AadharPhotoUrl: aadharPhotoUrl,
     CollegeIdPhotoUrl: collegeIdPhotoUrl
   };
+  // Record the signature + tripartite consent only when a signature was drawn this submit,
+  // so a later edit that omits it never wipes an existing signature (merge skips '' values).
+  if (signatureUrl) {
+    fields.SignatureUrl = signatureUrl;
+    fields.AgreementStatus = 'Signed';
+    fields.SignedAt = new Date();
+  }
 
   const existing = payload.studentId ? findStudentRowById_(studentId) : null;
   if (existing) {
@@ -570,6 +583,11 @@ function saveStudentVerification(payload) {
   if (payload.signatureBase64) {
     row[header.indexOf('SignatureUrl')] =
       savePngInFolder_(folder, payload.signatureBase64, base + '_sign.png');
+    // The student read the tripartite and signed on the in-person pad — record consent.
+    const iAgr = header.indexOf('AgreementStatus');
+    if (iAgr >= 0) row[iAgr] = 'Signed';
+    const iSigned = header.indexOf('SignedAt');
+    if (iSigned >= 0) row[iSigned] = new Date();
   }
   if (row[header.indexOf('PhotoUrl')] && row[header.indexOf('SignatureUrl')]) {
     row[header.indexOf('Status')] = 'Verified';
@@ -646,6 +664,7 @@ function getCompareDocs(studentId) {
   const aadhar = urls(get('AadharPhotoUrl')).map(toImg).filter(Boolean);
   const college = urls(get('CollegeIdPhotoUrl')).map(toImg).filter(Boolean);
   const photo = get('PhotoUrl') ? toImg(get('PhotoUrl')) : null;
+  const signature = get('SignatureUrl') ? toImg(get('SignatureUrl')) : null;
 
   let agreement = null;
   const agUrl = getFlatAgreementUrl_(flat);
@@ -671,6 +690,7 @@ function getCompareDocs(studentId) {
     aadhar: aadhar,
     college: college,
     photo: photo,
+    signature: signature,
     agreement: agreement
   };
 }
@@ -722,6 +742,21 @@ function saveStudentDetails(studentId, fields) {
   getSpreadsheet_().getSheetByName(SHEET_STUDENTS)
     .getRange(found.rowNumber, 1, 1, row.length).setValues([row]);
   return { ok: true, studentId: studentId, applied: applied };
+}
+
+// Web admin: delete a student row outright — used to remove a duplicate submission
+// (e.g. a resident who re-opened the form to re-sign). Removes the sheet row; the
+// student's Drive files are left in place (harmless, and safe if the wrong row is picked).
+// Public so the web admin page can call it via google.script.run.
+function deleteStudent(studentId) {
+  studentId = String(studentId || '').trim();
+  if (!studentId) throw new Error('studentId is required.');
+
+  const found = findStudentRowById_(studentId);
+  if (!found) throw new Error('Student not found: ' + studentId);
+
+  getSpreadsheet_().getSheetByName(SHEET_STUDENTS).deleteRow(found.rowNumber);
+  return { ok: true, studentId: studentId };
 }
 
 // Web admin: save the manually-editable flat fields (owner name, rent-agreement date,
@@ -949,6 +984,24 @@ function savePngInFolder_(folder, base64Data, fileName) {
   return saveFileInFolder_(folder, fileName, blob);
 }
 
+// EFOA (association) authorized signature — a single reusable image stamped into
+// every Annexure 2A via the {{efoa_sig}} token. Configure once: either upload a PNG
+// to Drive and set the EFOA_SIGNATURE_ID script property to its file id/URL, or call
+// saveEfoaSignature() to capture it. Returns '' if unset (the token simply clears).
+function getEfoaSignatureUrl_() {
+  return PropertiesService.getScriptProperties().getProperty('EFOA_SIGNATURE_ID') || '';
+}
+
+// One-time setup: store the EFOA signatory's signature (base64 PNG, with or without a
+// data: prefix) in the root image folder and record it in EFOA_SIGNATURE_ID for reuse.
+function saveEfoaSignature(base64Png) {
+  const b64 = String(base64Png || '').replace(/^data:[^,]+,/, '').trim();
+  if (!b64) throw new Error('A base64 PNG signature is required.');
+  const url = savePngInFolder_(getBaseFolder_(), b64, 'efoa_signature.png');
+  PropertiesService.getScriptProperties().setProperty('EFOA_SIGNATURE_ID', url);
+  return { ok: true, fileUrl: url };
+}
+
 // Saves a list of {base64, mimeType, name?} document files (images or PDF) for a
 // student and returns their share URLs. Names: <studentId>_<prefix>_<n>.<ext>.
 function saveDocFiles_(folder, studentId, prefix, files) {
@@ -1061,6 +1114,8 @@ function generateAnnexurePdf(flat) {
     replaceTokenWithImage_(body, tag + 'collegeid2}}', col[1], 260, 170);
   }
   replaceTokenWithImage_(body, '{{owner_sig}}', flatInfo.OwnerSignatureUrl, 150, 50);
+  // EFOA (association) party — the same stored authorized signature on every agreement.
+  replaceTokenWithImage_(body, '{{efoa_sig}}', getEfoaSignatureUrl_(), 150, 50);
 
   // Final sweep: clear any {{token}} that had no value or wasn't mapped, so no raw
   // placeholders ever appear in the PDF. (Runs after all text/image replacements.)

@@ -19,9 +19,13 @@
     .pills { display:flex; border-bottom:1px solid var(--line); margin-bottom:16px; }
     .pill { position:relative; flex:1 1 0; min-width:0; display:flex; align-items:center; justify-content:center; gap:4px;
             padding:14px 4px; color:#9aa0a6; font-size:12px; font-weight:600; letter-spacing:.5px;
-            text-transform:uppercase; line-height:1; cursor:pointer; }
+            text-transform:uppercase; line-height:1; cursor:pointer; background:none; border:0;
+            -webkit-tap-highlight-color:transparent; }
+    .pill:focus, .pill:focus-visible { outline:none; }
     .pill .lbl { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .pill .tick { display:none; color:var(--ok); font-size:10px; flex:0 0 auto; }
+    /* a completed step is indicated by the tick only — no box / background highlight */
+    .pill.done { background:none; border:0; box-shadow:none; }
     .pill.done .tick { display:inline; }
     .pill.active { color:var(--pri); }
     .pill.active::after { content:''; position:absolute; left:50%; bottom:-1px; transform:translateX(-50%);
@@ -53,6 +57,23 @@
     button.ghost { background:#fff; color:var(--pri); border-color:var(--pri); }
     button.primary { color:var(--pri); background:var(--gold); border:none; }
     button.primary:disabled { background:#cdbf9e; color:#fff; }
+    button.danger { background:#fff; color:var(--err); border-color:var(--err); }
+
+    /* Tripartite agreement + on-screen signature (final step) */
+    .terms { font-size:13px; color:#3c4043; line-height:1.5; }
+    .terms p { margin:0 0 8px; }
+    .agree-list { list-style:none; padding:0; margin:6px 0 0; }
+    .agree-list li { display:flex; align-items:flex-start; gap:10px; padding:10px 0; border-top:1px solid #eee; }
+    .agree-list li:first-child { border-top:none; }
+    .agree-list input[type=checkbox] { width:20px; height:20px; flex:0 0 auto; margin:1px 0 0; accent-color:var(--pri); }
+    .agree-list label { margin:0; font-size:13px; color:#3c4043; line-height:1.45; }
+    .agree-btns { display:flex; gap:10px; margin-top:14px; }
+    .agree-note { font-size:12px; margin-top:10px; min-height:16px; }
+    .sign-block { margin-top:16px; }
+    .sign-block h3 { font-size:13px; text-transform:uppercase; letter-spacing:.4px; color:var(--pri); margin:0 0 8px; }
+    #signPad { width:100%; height:180px; background:#fff; border:1.5px dashed var(--line); border-radius:8px;
+               touch-action:none; display:block; cursor:crosshair; }
+    .sign-clear { background:none; border:none; color:var(--err); font-size:13px; cursor:pointer; padding:6px 0; margin-top:4px; }
 
     .status { text-align:center; font-size:14px; margin:12px 0; min-height:20px; }
     .ok { color:var(--ok); } .err { color:var(--err); }
@@ -152,6 +173,36 @@
         </div>
       </div>
 
+      <!-- Step 5 — Tripartite agreement + on-screen signature -->
+      <div class="step" data-step="4">
+        <div class="card">
+          <h2>Tripartite agreement</h2>
+          <div class="terms">
+            <p><strong>Resident undertaking (Annexure 2A).</strong> This is a tripartite agreement between the flat owner, you (the resident) and the Estancia Flat Owners Association (EFOA). Please tick each point to confirm, then agree and sign.</p>
+          </div>
+          <ul class="agree-list" id="agreeList">
+            <li><input type="checkbox" id="tp1" onchange="updateAgreeBtn()"><label for="tp1">The details I have provided are true and correct, and my Aadhaar &amp; College/Company ID are genuine and belong to me.</label></li>
+            <li><input type="checkbox" id="tp2" onchange="updateAgreeBtn()"><label for="tp2">I will occupy the flat as a resident on rent for the stated tenancy period, and abide by the rules, byelaws and directions of EFOA and the apartment management.</label></li>
+            <li><input type="checkbox" id="tp3" onchange="updateAgreeBtn()"><label for="tp3">I will maintain good conduct, not cause nuisance to other residents, and use the premises only for lawful residential purposes.</label></li>
+            <li><input type="checkbox" id="tp4" onchange="updateAgreeBtn()"><label for="tp4">I authorise the owner and EFOA to share these details with the police / authorities for statutory verification as required.</label></li>
+            <li><input type="checkbox" id="tp5" onchange="updateAgreeBtn()"><label for="tp5">I will vacate the premises on expiry or termination of the tenancy, and keep EFOA updated of any change in my details.</label></li>
+          </ul>
+
+          <div class="agree-btns" id="agreeBtns">
+            <button type="button" class="btn danger" onclick="denyAgreement()">Deny</button>
+            <button type="button" class="btn primary" id="agreeBtn" onclick="acceptAgreement()" disabled>I Agree</button>
+          </div>
+          <div class="agree-note hint" id="agreeNote"></div>
+
+          <div class="sign-block" id="signBlock" style="display:none">
+            <h3>Sign here</h3>
+            <div class="hint">Draw your signature in the box below using your finger or a stylus.</div>
+            <canvas id="signPad"></canvas>
+            <button type="button" class="sign-clear" onclick="clearSign()">Clear &amp; re-sign</button>
+          </div>
+        </div>
+      </div>
+
       <div class="status" id="status"></div>
 
       <div class="nav">
@@ -164,7 +215,7 @@
     <div class="done" id="done" style="display:none">
       <div class="big">✅</div>
       <h2 style="text-transform:none;color:#202124">Thank you!</h2>
-      <p class="sub">Your details have been submitted. Please visit the EFOA office for your photo &amp; signature.</p>
+      <p class="sub">Your details, agreement and signature have been submitted. Please visit the EFOA office for your photo. If your signature needs correcting, just reopen this form and sign again.</p>
     </div>
   </div>
 
@@ -182,8 +233,11 @@
       { title: 'Flat' },
       { title: 'Resident' },
       { title: 'College/Company' },
-      { title: 'Documents' }
+      { title: 'Documents' },
+      { title: 'Agreement' }
     ];
+    // Set once the resident ticks all points and taps "I Agree".
+    var agreed = false;
     var current = 0;
     var visited = {}; // steps the user has opened — a tick shows only after a step is visited
 
@@ -245,6 +299,7 @@
       loadDraft();                                                     // restore any unexpired draft …
       if (INIT_FLAT) document.getElementById('flat').value = INIT_FLAT;  // … but a ?flat= link wins
       setActive('aadhar');
+      initSignPad();
       showStep(0);
       updateTicks();
     });
@@ -293,8 +348,16 @@
       var last = (i === STEPS.length - 1);
       document.getElementById('backBtn').style.display = i === 0 ? 'none' : '';
       document.getElementById('nextBtn').style.display = last ? 'none' : '';
-      document.getElementById('submitBtn').style.display = last ? '' : 'none';
+      // Submit only appears on the final step, and only once the resident has agreed & signed.
+      updateSubmitBtn();
+      if (last && agreed) sizeSignPad();   // canvas is measurable now the step is visible
       window.scrollTo(0, 0);
+    }
+
+    // Show "Submit my details" only on the last step once the resident has agreed and signed.
+    function updateSubmitBtn() {
+      var last = (current === STEPS.length - 1);
+      document.getElementById('submitBtn').style.display = (last && agreed && signDrawn) ? '' : 'none';
     }
 
     function goNext() {
@@ -324,6 +387,10 @@
       } else if (i === 3) {
         if (!docs.aadhar.length) return 'Please add your Aadhaar (photo(s) or PDF).';
         if (!docs.college.length) return 'Please add your College ID (photo(s) or PDF).';
+      } else if (i === 4) {
+        if (!allAgreed()) return 'Please tick each point of the agreement.';
+        if (!agreed) return 'Please tap "I Agree" to accept the tripartite agreement.';
+        if (!signDrawn) return 'Please add your signature to complete the form.';
       }
       return '';
     }
@@ -401,6 +468,95 @@
       saveDraft();   // keep the draft in sync when files are added / removed
     }
 
+    // --- Tripartite agreement + on-screen signature --------------------------
+    var TP_IDS = ['tp1', 'tp2', 'tp3', 'tp4', 'tp5'];
+    function allAgreed() { return TP_IDS.every(function (id) { return document.getElementById(id).checked; }); }
+
+    // Enable "I Agree" only once every point is ticked.
+    function updateAgreeBtn() {
+      document.getElementById('agreeBtn').disabled = !allAgreed();
+      // If they untick after agreeing, retract consent and hide the signature pad.
+      if (agreed && !allAgreed()) {
+        agreed = false;
+        document.getElementById('signBlock').style.display = 'none';
+        updateSubmitBtn();
+      }
+      updateTicks();
+    }
+
+    function acceptAgreement() {
+      if (!allAgreed()) return;
+      agreed = true;
+      var note = document.getElementById('agreeNote');
+      note.className = 'agree-note hint'; note.textContent = '';
+      document.getElementById('signBlock').style.display = 'block';
+      sizeSignPad();
+      updateTicks();
+      updateSubmitBtn();
+    }
+
+    function denyAgreement() {
+      agreed = false;
+      document.getElementById('signBlock').style.display = 'none';
+      var note = document.getElementById('agreeNote');
+      note.className = 'agree-note err';
+      note.textContent = 'You must agree to the tripartite terms to complete onboarding. Please contact the flat owner or EFOA office if you have questions.';
+      updateSubmitBtn();
+    }
+
+    // A dependency-free signature pad (same approach as the admin tablet).
+    var signDrawn = false, signSized = false, signDrawing = false, signLast = null;
+
+    function initSignPad() {
+      var c = document.getElementById('signPad');
+      if (!c) return;
+      var ctx = c.getContext('2d');
+      function pos(e) { var r = c.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
+      c.addEventListener('pointerdown', function (e) {
+        sizeSignPad();
+        signDrawing = true; signLast = pos(e);
+        try { c.setPointerCapture(e.pointerId); } catch (_) {}
+        e.preventDefault();
+      });
+      c.addEventListener('pointermove', function (e) {
+        if (!signDrawing) return;
+        var evts = (e.getCoalescedEvents && e.getCoalescedEvents()) || [];
+        if (!evts.length) evts = [e];
+        ctx.strokeStyle = '#1F4A3A'; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+        evts.forEach(function (ev) {
+          var p = pos(ev);
+          var pr = ev.pressure > 0 ? ev.pressure : 0.5;
+          ctx.lineWidth = 1 + pr * 3;
+          ctx.beginPath(); ctx.moveTo(signLast.x, signLast.y); ctx.lineTo(p.x, p.y); ctx.stroke();
+          signLast = p;
+        });
+        if (!signDrawn) { signDrawn = true; updateSubmitBtn(); updateTicks(); }
+        e.preventDefault();
+      });
+      function end() { signDrawing = false; }
+      c.addEventListener('pointerup', end);
+      c.addEventListener('pointerleave', end);
+      c.addEventListener('pointercancel', end);
+    }
+
+    // Match the canvas backing store to its displayed size — only once it is visible.
+    function sizeSignPad() {
+      var c = document.getElementById('signPad');
+      if (!c || signSized || !c.clientWidth) return;
+      var dpr = window.devicePixelRatio || 1;
+      c.width = c.clientWidth * dpr; c.height = c.clientHeight * dpr;
+      c.getContext('2d').scale(dpr, dpr);
+      signSized = true;
+    }
+
+    function clearSign() {
+      var c = document.getElementById('signPad');
+      if (signSized) c.getContext('2d').clearRect(0, 0, c.width, c.height);
+      signDrawn = false;
+      updateSubmitBtn();
+      updateTicks();
+    }
+
     // --- Helpers / submit ----------------------------------------------------
     function val(id) { return document.getElementById(id).value.trim(); }
     function set(id, v) { document.getElementById(id).value = v; }
@@ -424,7 +580,9 @@
         collegeStudentId: val('collegeStudentId'), collegeName: val('collegeName'),
         courseName: val('courseName'), academicYear: val('academicYear'), idValidUpto: val('idValidUpto'),
         tenancyPeriod: val('tenancyPeriod'), agreementDate: val('agreementDate'),
-        aadharFiles: docs.aadhar, collegeFiles: docs.college
+        aadharFiles: docs.aadhar, collegeFiles: docs.college,
+        agreementAccepted: true,
+        signatureBase64: signDrawn ? document.getElementById('signPad').toDataURL('image/png').split(',')[1] : ''
       };
 
       var btn = document.getElementById('submitBtn');
