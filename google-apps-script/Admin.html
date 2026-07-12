@@ -436,28 +436,25 @@
         </div>
 
         <div class="sign" id="signSection" style="display:none">
-          <div class="docgroup">Tripartite agreement — read &amp; sign</div>
-          <div class="terms" id="signTerms">
-            <p><strong>Resident undertaking (Annexure 2A).</strong> The resident named above confirms and undertakes that:</p>
-            <ol>
-              <li>The details provided are true and correct, and the Aadhaar &amp; College/Company ID are genuine and belong to me.</li>
-              <li>I will occupy the flat as a resident on rent for the stated tenancy period, and abide by the rules, byelaws and directions of the Estancia Flat Owners Association (EFOA) and the apartment management.</li>
-              <li>I will maintain good conduct, not cause nuisance to other residents, and use the premises only for lawful residential purposes.</li>
-              <li>I authorise the owner and EFOA to share these details with the police / authorities for statutory verification as required.</li>
-              <li>I will vacate the premises on expiry or termination of the tenancy, and keep EFOA updated of any change in my details.</li>
-            </ol>
-            <p class="hint">The full tripartite agreement is the Estancia Annexure 2A between the flat owner, the resident and EFOA (rendered in the Agreement pane).</p>
-          </div>
-          <label class="agree-row"><input type="checkbox" id="agreeCheck" onchange="updateSignSave()"> The resident has read the above and agrees to sign the tripartite agreement.</label>
-          <div class="sign-row">
-            <canvas id="signPad"></canvas>
-            <div class="sign-tools">
-              <button id="clearSignBtn" class="iconbtn" onclick="clearSign()" title="Clear signature">✕</button>
-              <button id="saveSignBtn" class="iconbtn save" onclick="saveSignature()" title="Save signature" disabled>✓</button>
-            </div>
-          </div>
+          <div class="docgroup">Tripartite agreement &amp; signature</div>
           <div id="signExisting" class="photo-note"></div>
-          <div id="signStatus" class="hint" style="margin-top:6px"></div>
+
+          <!-- In-person signing is hidden for now — it can return in the future. The clauses
+               are NOT re-listed here; the resident reads the full tripartite agreement
+               (Annexure 2A, Agreement pane) and accepts & signs on their own form. To re-enable
+               admin capture, remove the display:none below — the checkbox and pad code
+               (initSignPad / saveSignature) are left intact. -->
+          <div id="inpersonSign" style="display:none">
+            <label class="agree-row"><input type="checkbox" id="agreeCheck" onchange="updateSignSave()"> The resident has read the above and agrees to sign the tripartite agreement.</label>
+            <div class="sign-row">
+              <canvas id="signPad"></canvas>
+              <div class="sign-tools">
+                <button id="clearSignBtn" class="iconbtn" onclick="clearSign()" title="Clear signature">✕</button>
+                <button id="saveSignBtn" class="iconbtn save" onclick="saveSignature()" title="Save signature" disabled>✓</button>
+              </div>
+            </div>
+            <div id="signStatus" class="hint" style="margin-top:6px"></div>
+          </div>
         </div>
 
         <div class="assignid" id="assignSection" style="display:none">
@@ -1489,20 +1486,25 @@
       document.getElementById('agreeCheck').checked = false;
       updateSignSave();
       document.getElementById('signStatus').textContent = '';
-      // Show the actual signature the resident drew on their own form, so the admin can
-      // check it. If it isn't right, the resident reopens the form and signs again (or the
-      // admin re-captures it in person here).
+      // Residents now read the 28 points, accept and sign on their own form. Show that
+      // acceptance + the actual signature so the admin can check it, and remind the admin
+      // to have the resident read the full tripartite agreement (Agreement pane) once.
       var sig = s._docs && s._docs.signature;
+      var accepted = !!(sig && sig.base64) || !!s.SignatureUrl || String(s.AgreementStatus || '') === 'Signed';
       var box = document.getElementById('signExisting');
-      if (sig && sig.base64) {
-        box.innerHTML = 'Signed ✓ by ' + esc(s.Name || 'the resident') +
-          '. If the signature is not right, ask them to reopen their form and sign again.' +
-          '<br><img src="data:' + (sig.mime || 'image/png') + ';base64,' + sig.base64 +
-          '" style="max-width:280px;max-height:120px;margin-top:8px;border:1px solid #eef1f7;border-radius:8px;background:#fff;padding:4px">';
-      } else if (s.SignatureUrl) {
-        box.innerHTML = 'Signed ✓ — a signature is on file for ' + esc(s.Name || 'this student') + '. Re-sign only to replace it.';
+      var ask = '<div style="margin-top:8px;color:var(--pri);font-weight:600">👉 Please check with the resident that they have read all the tripartite clauses (Annexure 2A, shown in the Agreement pane) manually.</div>';
+      if (accepted) {
+        var when = s.SignedAt ? ' on ' + esc(s.SignedAt) : '';
+        var img = (sig && sig.base64)
+          ? '<br><img src="data:' + (sig.mime || 'image/png') + ';base64,' + sig.base64 +
+            '" style="max-width:280px;max-height:120px;margin-top:8px;border:1px solid #eef1f7;border-radius:8px;background:#fff;padding:4px">'
+          : '';
+        box.innerHTML = '<strong>✓ Accepted all 28 points of the tripartite agreement</strong> and signed on their own form' +
+          when + '. If the signature is not right, ask ' + esc(s.Name || 'the resident') + ' to reopen the form and sign again.' +
+          ask + img;
       } else {
-        box.textContent = 'No signature yet — the resident can sign on their own form, or capture it here in person.';
+        box.innerHTML = '<strong>Not yet accepted.</strong> ' + esc(s.Name || 'The resident') +
+          ' has not accepted &amp; signed the tripartite agreement on their form. Ask them to open the form, tick all 28 points, and sign.' + ask;
       }
     }
 

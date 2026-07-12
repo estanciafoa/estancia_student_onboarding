@@ -62,11 +62,16 @@
     /* Tripartite agreement + on-screen signature (final step) */
     .terms { font-size:13px; color:#3c4043; line-height:1.5; }
     .terms p { margin:0 0 8px; }
-    .agree-list { list-style:none; padding:0; margin:6px 0 0; }
-    .agree-list li { display:flex; align-items:flex-start; gap:10px; padding:10px 0; border-top:1px solid #eee; }
+    .agree-all { display:flex; align-items:center; gap:10px; margin:10px 0 4px; font-size:13px; color:var(--pri); cursor:pointer; }
+    .agree-all input[type=checkbox] { width:20px; height:20px; accent-color:var(--pri); }
+    .agree-list { list-style:none; counter-reset:tp; padding:0; margin:6px 0 0;
+                  max-height:340px; overflow-y:auto; border:1px solid var(--line); border-radius:8px; }
+    .agree-list li { counter-increment:tp; display:flex; align-items:flex-start; gap:10px;
+                     padding:10px 12px; border-top:1px solid #eee; }
     .agree-list li:first-child { border-top:none; }
     .agree-list input[type=checkbox] { width:20px; height:20px; flex:0 0 auto; margin:1px 0 0; accent-color:var(--pri); }
     .agree-list label { margin:0; font-size:13px; color:#3c4043; line-height:1.45; }
+    .agree-list label::before { content:counter(tp) ". "; font-weight:700; color:var(--pri); }
     .agree-btns { display:flex; gap:10px; margin-top:14px; }
     .agree-note { font-size:12px; margin-top:10px; min-height:16px; }
     .sign-block { margin-top:16px; }
@@ -178,15 +183,39 @@
         <div class="card">
           <h2>Tripartite agreement</h2>
           <div class="terms">
-            <p><strong>Resident undertaking (Annexure 2A).</strong> This is a tripartite agreement between the flat owner, you (the resident) and the Estancia Flat Owners Association (EFOA). Please tick each point to confirm, then agree and sign.</p>
+            <p><strong>Undertaking &amp; Affirmation by Tenants (Annexure 2A).</strong> This is a tripartite agreement between the flat owner, you (the resident) and the Estancia Flat Owners Association (EFOA). Please read and tick each of the 28 points to confirm, then agree and sign.</p>
           </div>
-          <ul class="agree-list" id="agreeList">
-            <li><input type="checkbox" id="tp1" onchange="updateAgreeBtn()"><label for="tp1">The details I have provided are true and correct, and my Aadhaar &amp; College/Company ID are genuine and belong to me.</label></li>
-            <li><input type="checkbox" id="tp2" onchange="updateAgreeBtn()"><label for="tp2">I will occupy the flat as a resident on rent for the stated tenancy period, and abide by the rules, byelaws and directions of EFOA and the apartment management.</label></li>
-            <li><input type="checkbox" id="tp3" onchange="updateAgreeBtn()"><label for="tp3">I will maintain good conduct, not cause nuisance to other residents, and use the premises only for lawful residential purposes.</label></li>
-            <li><input type="checkbox" id="tp4" onchange="updateAgreeBtn()"><label for="tp4">I authorise the owner and EFOA to share these details with the police / authorities for statutory verification as required.</label></li>
-            <li><input type="checkbox" id="tp5" onchange="updateAgreeBtn()"><label for="tp5">I will vacate the premises on expiry or termination of the tenancy, and keep EFOA updated of any change in my details.</label></li>
-          </ul>
+          <label class="agree-all"><input type="checkbox" id="tpAll" onchange="toggleAllTp(this)"> <strong>Tick all 28 points</strong></label>
+          <ol class="agree-list" id="agreeList">
+            <li><input type="checkbox" class="tp" id="tp1"><label for="tp1">I agree that this undertaking is an <strong>integral part of the rent agreement</strong>.</label></li>
+            <li><input type="checkbox" class="tp" id="tp2"><label for="tp2">I will <strong>comply with EFOA bye-laws and the rules &amp; regulations</strong> in force from time to time, and <strong>shall not cause any nuisance</strong> to anyone else in Estancia Township in any manner.</label></li>
+            <li><input type="checkbox" class="tp" id="tp3"><label for="tp3">I will use the apartment for my <strong>RESIDENTIAL purpose ONLY</strong>.</label></li>
+            <li><input type="checkbox" class="tp" id="tp4"><label for="tp4">I will, to the maximum extent permitted by law, <strong>defend, indemnify and hold EFOA</strong>, its office bearers, employees, agents and members <strong>harmless from all losses, damages and third-party claims</strong> arising from my non-compliance with or violation of this undertaking or law.</label></li>
+            <li><input type="checkbox" class="tp" id="tp5"><label for="tp5">I will <strong>submit the application form with all details and pay the prescribed fee</strong> to EFOA for an Estancia ID (hard copy or soft copy as applicable).</label></li>
+            <li><input type="checkbox" class="tp" id="tp6"><label for="tp6">I will <strong>enter Estancia township only after showing the EFOA-issued ID</strong> to security at the Main gate — a <strong>mobile exhibit or rental agreement copy is not permitted</strong>.</label></li>
+            <li><input type="checkbox" class="tp" id="tp7"><label for="tp7">I will <strong>pay EFOA all monthly dues</strong> — (a) gas, (b) electricity as per meter readings, (c) diesel consumption as notified, and (d) usage charges of gym, tennis court, swimming pool and other facilities — <strong>on or before the stipulated date</strong>.</label></li>
+            <li><input type="checkbox" class="tp" id="tp8"><label for="tp8">I will <strong>park my vehicle only in the space allotted</strong> (duly marked with the apartment number) and as shown by EFOA.</label></li>
+            <li><input type="checkbox" class="tp" id="tp9"><label for="tp9">I will <strong>not bring any additional vehicle</strong> for parking.</label></li>
+            <li><input type="checkbox" class="tp" id="tp10"><label for="tp10">I will <strong>apply for and take written permission from EFOA in advance</strong> for entry of my guests, visitors and their vehicles, and understand that <strong>violators will be fined</strong> as per EFOA rules amended from time to time.</label></li>
+            <li><input type="checkbox" class="tp" id="tp11"><label for="tp11">I will <strong>not allow more than the prescribed (max 6) occupants</strong> authorized by the owner to stay overnight in the apartment at any point of time.</label></li>
+            <li><input type="checkbox" class="tp" id="tp12"><label for="tp12">I will ensure my guests and visitors <strong>do not park at 'No Parking' areas or reserved parking lots</strong> of other owners at Tower 1 to 3 parking areas and the Multi Level Car Parking (MLCP).</label></li>
+            <li><input type="checkbox" class="tp" id="tp13"><label for="tp13">I will ensure all guests and visitors <strong>enter with a duly approved EFOA visitors' slip</strong> and <strong>leave the township by 9 pm</strong>, surrendering the pass to Main gate security before leaving.</label></li>
+            <li><input type="checkbox" class="tp" id="tp14"><label for="tp14">I will be <strong>responsible for any violation by my guests/visitors</strong>, including damage caused to EFOA property.</label></li>
+            <li><input type="checkbox" class="tp" id="tp15"><label for="tp15">I will <strong>drive within the prescribed speed limits</strong> in the township with <strong>only one pillion</strong>, and ensure my guests and visitors also adhere to the rules.</label></li>
+            <li><input type="checkbox" class="tp" id="tp16"><label for="tp16">I will <strong>not smoke or consume alcoholic drinks</strong> in apartment balconies, common areas, utilities and facilities of Estancia Township.</label></li>
+            <li><input type="checkbox" class="tp" id="tp17"><label for="tp17">I will <strong>not throw cigarette butts, bottles, garbage or other harmful objects</strong>, and understand these offences are <strong>punishable with fines, compensation and eviction</strong>.</label></li>
+            <li><input type="checkbox" class="tp" id="tp18"><label for="tp18">I will <strong>not indulge in any unlawful activities</strong>, including gambling and online gambling.</label></li>
+            <li><input type="checkbox" class="tp" id="tp19"><label for="tp19">I will <strong>dress decently</strong> without offending the sentiments of Estancia residents.</label></li>
+            <li><input type="checkbox" class="tp" id="tp20"><label for="tp20">I will <strong>not store or possess any harmful material or device</strong> — fireworks, firearms, ammunition, petroleum products, weapons, explosives or dangerous chemicals — in the lifts, common areas or the apartment; <strong>punishable with fines, compensation and eviction</strong>.</label></li>
+            <li><input type="checkbox" class="tp" id="tp21"><label for="tp21">I will <strong>not store, possess, consume or exchange illegal drugs, narcotic substances or dangerous drugs</strong> inside the apartment or any common areas, facilities and utilities; <strong>punishable with fines, compensation and eviction</strong>.</label></li>
+            <li><input type="checkbox" class="tp" id="tp22"><label for="tp22">I will <strong>not move around the township after 10.00 pm</strong> (including visits to other apartments) causing inconvenience to other residents.</label></li>
+            <li><input type="checkbox" class="tp" id="tp23"><label for="tp23">I will keep <strong>all audio and video players and equipment at a sound level that does not disturb</strong> other residents' peace, and <strong>not noisily play any instruments</strong> on the premises at any time.</label></li>
+            <li><input type="checkbox" class="tp" id="tp24"><label for="tp24">I will <strong>report to the EFOA Estate Manager any negligence or misbehaviour</strong> of co-residents, EFOA employees or service personnel, and will <strong>not threaten, misbehave, abuse or assault</strong> any co-resident or staff.</label></li>
+            <li><input type="checkbox" class="tp" id="tp25"><label for="tp25">I will <strong>not obstruct any common areas</strong> — driveways, sidewalks, courts, entry passages, stairs, halls or spaces for bicycles/vehicles — other than for ingress and egress.</label></li>
+            <li><input type="checkbox" class="tp" id="tp26"><label for="tp26">I will <strong>not change the apartment's main door locks or fix additional locks</strong> without the owner's written approval; <strong>duplication of any key is strictly prohibited</strong>.</label></li>
+            <li><input type="checkbox" class="tp" id="tp27"><label for="tp27">I will <strong>hand over all original keys</strong> (including additional locks, as permitted by the owner) to the apartment owner on termination of occupancy against proper acknowledgement, and submit a copy thereof to EFOA.</label></li>
+            <li><input type="checkbox" class="tp" id="tp28"><label for="tp28">In the event of any violation of the above undertakings by me or my guests/visitors, I <strong>unconditionally agree that EFOA is empowered to initiate necessary punitive action</strong> as per EFOA Bye-Laws or amendments — <strong>including eviction</strong> — as decided by the Managing Committee and in compliance with applicable law.</label></li>
+          </ol>
 
           <div class="agree-btns" id="agreeBtns">
             <button type="button" class="btn danger" onclick="denyAgreement()">Deny</button>
@@ -300,6 +329,8 @@
       if (INIT_FLAT) document.getElementById('flat').value = INIT_FLAT;  // … but a ?flat= link wins
       setActive('aadhar');
       initSignPad();
+      // Ticking any of the 28 agreement points re-evaluates the "I Agree" gate.
+      document.getElementById('agreeList').addEventListener('change', updateAgreeBtn);
       showStep(0);
       updateTicks();
     });
@@ -469,14 +500,26 @@
     }
 
     // --- Tripartite agreement + on-screen signature --------------------------
-    var TP_IDS = ['tp1', 'tp2', 'tp3', 'tp4', 'tp5'];
-    function allAgreed() { return TP_IDS.every(function (id) { return document.getElementById(id).checked; }); }
+    function tpBoxes() { return document.querySelectorAll('#agreeList input.tp'); }
+    function allAgreed() {
+      var b = tpBoxes();
+      return b.length > 0 && Array.prototype.every.call(b, function (c) { return c.checked; });
+    }
+
+    // "Tick all 28 points" master toggle.
+    function toggleAllTp(master) {
+      Array.prototype.forEach.call(tpBoxes(), function (c) { c.checked = master.checked; });
+      updateAgreeBtn();
+    }
 
     // Enable "I Agree" only once every point is ticked.
     function updateAgreeBtn() {
-      document.getElementById('agreeBtn').disabled = !allAgreed();
+      var ok = allAgreed();
+      document.getElementById('agreeBtn').disabled = !ok;
+      var master = document.getElementById('tpAll');
+      if (master) master.checked = ok;
       // If they untick after agreeing, retract consent and hide the signature pad.
-      if (agreed && !allAgreed()) {
+      if (agreed && !ok) {
         agreed = false;
         document.getElementById('signBlock').style.display = 'none';
         updateSubmitBtn();
