@@ -199,6 +199,19 @@
     .thumb .dl { display: block; width: 100%; border: none; border-top: 1px solid var(--line); background: #eef2fb;
                  color: var(--pri); font-weight: 600; padding: 7px; cursor: pointer; font-size: 12px; }
     .thumb .dl:hover { background: #dce6fb; }
+    /* loading placeholders — shimmer skeleton + spinner */
+    .skel { background: #e9edf3; }
+    .skel::after { content: ''; position: absolute; inset: 0; border-radius: 8px;
+                   background: linear-gradient(90deg, transparent, rgba(255,255,255,.65), transparent);
+                   transform: translateX(-100%); animation: shimmer 1.3s infinite; }
+    .thumb.skel { position: relative; overflow: hidden; }
+    .thumb.loading { min-height: 150px; }
+    @keyframes shimmer { 100% { transform: translateX(100%); } }
+    .ph-load { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center;
+               justify-content: center; gap: 10px; padding: 22px 10px; color: var(--muted); font-size: 12.5px; text-align: center; }
+    .ph-spin { width: 24px; height: 24px; border: 3px solid rgba(0,80,112,.18); border-top-color: var(--pri);
+               border-radius: 50%; animation: spin .8s linear infinite; }
+    .pdf-slot { display: block; }
     .docgroup { font-size: 12px; font-weight: 700; color: #48536a; text-transform: uppercase; letter-spacing: .04em;
                 margin: 4px 0 8px; }
     .uploadprompt { text-align: center; color: #5f6f8f; padding: 24px 10px; }
@@ -323,6 +336,9 @@
     body.theme-dark .ghostbtn { background: #1b2733; color: var(--accent); }
     body.theme-dark .thumb .dl { background: #1b2733; color: var(--accent); border-top-color: var(--line); }
     body.theme-dark .thumb .dl:hover { background: #25394a; }
+    body.theme-dark .skel { background: #1f2c39; }
+    body.theme-dark .skel::after { background: linear-gradient(90deg, transparent, rgba(255,255,255,.10), transparent); }
+    body.theme-dark .ph-load { color: #9fb1c0; }
     body.theme-dark .uploadprompt { color: #9fb1c0; }
     body.theme-dark .empty { color: #7f93a3; }
     body.theme-dark .edit-head { color: #9fb1c0; }
@@ -1408,9 +1424,12 @@
       }
       document.getElementById('dlPhotoBtn').disabled = !existing;
       document.getElementById('editPhotoBtn').disabled = !existing;
-      document.getElementById('photoExisting').innerHTML = existing
-        ? 'Photo on file — Download saves it as <b>' + esc(getIdBase(s)) + '.jpeg</b>. Take or upload a new one to replace it.'
-        : 'No photo yet — take one with the camera or upload an image.';
+      document.getElementById('photoExisting').innerHTML =
+        (!s._docs && s._docsLoading)
+          ? '<span class="ph-spin" style="display:inline-block;width:15px;height:15px;border-width:2px;vertical-align:middle"></span> Loading photo…'
+          : existing
+            ? 'Photo on file — Download saves it as <b>' + esc(getIdBase(s)) + '.jpeg</b>. Take or upload a new one to replace it.'
+            : 'No photo yet — take one with the camera or upload an image.';
     }
 
     // ---------- center: read tripartite + capture signature (in person) ----------
@@ -1493,6 +1512,10 @@
       var accepted = !!(sig && sig.base64) || !!s.SignatureUrl || String(s.AgreementStatus || '') === 'Signed';
       var box = document.getElementById('signExisting');
       var ask = '<div style="margin-top:8px;color:var(--pri);font-weight:600">👉 Please check with the resident that they have read all the tripartite clauses (Annexure 2A, shown in the Agreement pane) manually.</div>';
+      if (!s._docs && s._docsLoading) {
+        box.innerHTML = '<div class="ph-load" style="padding:10px 0"><span class="ph-spin"></span><span>Loading signature…</span></div>' + ask;
+        return;
+      }
       if (accepted) {
         var when = s.SignedAt ? ' on ' + esc(s.SignedAt) : '';
         var img = (sig && sig.base64)
@@ -1801,11 +1824,19 @@
       var body = document.getElementById('docBody');
       if (!s) { body.innerHTML = '<div class="empty">—</div>'; setPannable(body, false); return; }
       if (s._docs) { paintDocs(s._docs); return; }
-      body.innerHTML = '<div class="empty">Loading documents…</div>';
+      s._docsLoading = true;                       // photo & signature panes show a spinner too
+      body.innerHTML =
+        '<div class="docgroup">Aadhaar</div>' + loadingCard('Loading Aadhaar…') +
+        '<div class="docgroup" style="margin-top:14px">College / Company ID</div>' + loadingCard('Loading ID…');
       setPannable(body, false);
       callServer('getCompareDocs', { studentId: s.StudentId })
-        .then(function (d) { s._docs = d || {}; if (students[activeTab] === s) paintDocs(s._docs); })
-        .catch(function (e) { body.innerHTML = '<div class="err" style="padding:12px">' + esc(e && e.message ? e.message : 'Failed to load documents.') + '</div>'; });
+        .then(function (d) { s._docs = d || {}; s._docsLoading = false; if (students[activeTab] === s) paintDocs(s._docs); })
+        .catch(function (e) {
+          s._docsLoading = false;
+          if (students[activeTab] !== s) return;
+          body.innerHTML = '<div class="err" style="padding:12px">' + esc(e && e.message ? e.message : 'Failed to load documents.') + '</div>';
+          renderPhoto(); renderSign();
+        });
     }
 
     function paintDocs(d) {
@@ -1817,6 +1848,12 @@
       html += imagesHtml(d.college, 'No College/Company ID image on file.', 'collegeid');
       body.innerHTML = html || '<div class="empty">No documents.</div>';
       applyPaneZoom('R');
+      // Any Aadhaar / ID uploaded as a PDF renders into its slot with pdf.js.
+      Array.prototype.forEach.call(body.querySelectorAll('.thumb[data-pdf]'), function (w) {
+        var im = docItemFor(w.getAttribute('data-kind'), w.getAttribute('data-i'));
+        var slot = w.querySelector('.pdf-slot');
+        if (im && slot) renderPdfThumbs(slot, im.base64);
+      });
       setPannable(body, !!((d.aadhar && d.aadhar.length) || (d.college && d.college.length)));
       renderPhoto();   // docs now include the photo bytes → refresh the photo section
       renderSign();    // …and the resident's signature image
@@ -1826,18 +1863,66 @@
       if (!imgs || !imgs.length) return '<div class="empty" style="padding:8px 4px">' + emptyMsg + '</div>';
       return imgs.map(function (im, idx) {
         var mime = im.mime || 'image/jpeg';
-        var src = 'data:' + mime + ';base64,' + im.base64;
-        return '<div class="thumb" data-kind="' + kind + '" data-i="' + (idx + 1) + '" data-mime="' + mime + '">' +
-                 '<img src="' + src + '">' +
+        var pdf = isPdfItem(im);
+        var inner = pdf
+          ? '<div class="pdf-slot"><div class="ph-load"><span class="ph-spin"></span><span>Rendering PDF…</span></div></div>'
+          : '<img src="data:' + mime + ';base64,' + im.base64 + '">';
+        return '<div class="thumb" data-kind="' + kind + '" data-i="' + (idx + 1) + '" data-mime="' + mime + '"' +
+                 (pdf ? ' data-pdf="1"' : '') + '>' +
+                 inner +
                  '<button class="dl" onclick="dlThumb(this)">Download ⬇</button>' +
                '</div>';
       }).join('');
     }
 
+    // A loading placeholder card (shimmer + spinner + label) for a pane/section.
+    function loadingCard(label) {
+      return '<div class="thumb skel loading"><div class="ph-load">' +
+             '<span class="ph-spin"></span><span>' + esc(label || 'Loading…') + '</span></div></div>';
+    }
+    // True when a document is a PDF (by mime, url extension, or the %PDF base64 magic).
+    function isPdfItem(im) {
+      if (!im) return false;
+      if (String(im.mime || '').toLowerCase().indexOf('pdf') >= 0) return true;
+      if (/\.pdf(\?|$)/i.test(im.url || '')) return true;
+      return String(im.base64 || '').indexOf('JVBERi0') === 0;   // "%PDF-" encoded
+    }
+    // The loaded Aadhaar / College doc item behind a thumbnail (kind + 1-based index).
+    function docItemFor(kind, i) {
+      var s = students[activeTab]; if (!s || !s._docs) return null;
+      var list = kind === 'collegeid' ? s._docs.college : s._docs.aadhar;
+      return list && list[(+i) - 1];
+    }
+    // Render a base64 PDF as page-canvas thumbnails inside `slot` (right-pane width/zoom).
+    function renderPdfThumbs(slot, base64) {
+      if (!window.pdfjsLib) { slot.innerHTML = '<div class="ph-load">PDF preview needs an internet connection.</div>'; return; }
+      slot.innerHTML = '<div class="ph-load"><span class="ph-spin"></span><span>Rendering PDF…</span></div>';
+      pdfjsLib.getDocument({ data: base64ToBytes(base64) }).promise.then(function (pdf) {
+        slot.innerHTML = '';
+        var chain = Promise.resolve();
+        for (var p = 1; p <= pdf.numPages; p++) {
+          (function (n) {
+            chain = chain.then(function () {
+              return pdf.getPage(n).then(function (page) {
+                var vp = page.getViewport({ scale: 1.3 });
+                var canvas = document.createElement('canvas');
+                canvas.width = vp.width; canvas.height = vp.height;
+                canvas.style.width = rightZoom + '%';
+                return page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise.then(function () {
+                  slot.appendChild(canvas);
+                  if (pdf.numPages > 1) { var cap = document.createElement('div'); cap.className = 'cap'; cap.textContent = 'Page ' + n; slot.appendChild(cap); }
+                });
+              });
+            });
+          })(p);
+        }
+      }).catch(function () { slot.innerHTML = '<div class="ph-load">Could not render this PDF.</div>'; });
+    }
+
     // ---------- left: agreement ----------
     function loadAgreement(flat) {
       var body = document.getElementById('agreeBody');
-      body.innerHTML = '<div class="empty">Loading agreement…</div>';
+      body.innerHTML = loadingCard('Loading agreement…');
       setPannable(body, false);
       agreementPdfDoc = null;
       callServer('getFlatAgreementDoc', { flat: flat })
@@ -1872,7 +1957,7 @@
         return;
       }
       hint.textContent = 'PDF';
-      body.innerHTML = '<div class="empty">Rendering pages…</div>';
+      body.innerHTML = loadingCard('Rendering agreement…');
       var bytes = base64ToBytes(ag.base64);
       pdfjsLib.getDocument({ data: bytes }).promise.then(function (pdf) {
         agreementPdfDoc = pdf;
@@ -1979,10 +2064,13 @@
     // Download an Aadhaar/College image from its thumbnail, named <id>_<kind>_<n>.<ext>.
     function dlThumb(btn) {
       var w = btn.closest('.thumb'); if (!w) return;
-      var img = w.querySelector('img'); if (!img) return;
       var s = students[activeTab] || {};
       var kind = w.getAttribute('data-kind'), i = w.getAttribute('data-i'), mime = w.getAttribute('data-mime');
-      downloadDataUrl(img.src, getIdBase(s) + '_' + kind + '_' + i + '.' + extFromMime(mime));
+      var im = docItemFor(kind, i);                      // works for PDF (no <img>) and images
+      var img = w.querySelector('img');
+      var src = im ? ('data:' + (im.mime || mime) + ';base64,' + im.base64) : (img && img.src);
+      if (!src) return;
+      downloadDataUrl(src, getIdBase(s) + '_' + kind + '_' + i + '.' + extFromMime(mime));
     }
     // Download the student photo as <id>.jpeg.
     function downloadPhoto() {
