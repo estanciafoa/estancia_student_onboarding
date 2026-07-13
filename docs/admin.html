@@ -1209,7 +1209,7 @@
           students.splice(activeTab, 1);
           if (activeTab >= students.length) activeTab = Math.max(0, students.length - 1);
           document.getElementById('who').textContent = 'Flat ' + (s.HouseId || '') + ' · ' + students.length + ' student(s)';
-          setExportsEnabled(false);           // re-lock exports; a student must be re-approved
+          setExportsEnabled(anyApproved());   // keep unlocked if another approved student remains
           renderTabs();
           if (students.length) switchTab(activeTab);
           else {
@@ -1260,6 +1260,14 @@
         var b = document.getElementById(id); if (b) b.disabled = !on;
       });
     }
+    // A student is approved if just approved this session, or the sheet persisted it as
+    // the lifecycle Status 'Approved' (set server-side on approval).
+    function isApproved(s) {
+      if (!s) return false;
+      if (s.Approved === true) return true;                                 // this session
+      return String(s.Status || '').trim().toLowerCase() === 'approved';    // persisted
+    }
+    function anyApproved() { return students.some(isApproved); }
     // Verify & approve the currently-selected student: rename their Drive files to the assigned
     // Student ID, then unlock the flat exports (Annexure PDF, Copy Data, Download Photos).
     function verifyApprove() {
@@ -1272,7 +1280,8 @@
       callServer('assignStudentId', { studentId: s.StudentId, assignedId: val })
         .then(function (r) {
           s.AssignedId = r.assignedId;
-          s.Approved = true;                 // mark this student approved
+          s.Approved = true;                 // mark approved (this session)
+          s.Status = 'Approved';             // mirror the persisted lifecycle status
           s._docs = null;                    // re-fetch images (renamed)
           renderDetails(); renderDocs(); renderTabs();
           setExportsEnabled(true);
@@ -1338,7 +1347,7 @@
             fillFlatEdit((res && res.flat) || {});
             document.getElementById('who').textContent = 'Flat ' + flat + ' · ' + students.length + ' student(s)';
             document.getElementById('centerHint').textContent = students.length ? '' : '(none submitted)';
-            setExportsEnabled(false);          // re-lock exports until a student is approved
+            setExportsEnabled(anyApproved());  // stay unlocked if a student is already approved
             document.getElementById('bbStatus').textContent = '';
             renderTabs();
             if (students.length) switchTab(0);
@@ -1372,7 +1381,7 @@
       students.forEach(function (s, i) {
         var opt = document.createElement('option');
         opt.textContent = (s.Name || ('Student ' + (i + 1))) +
-          (s.Approved ? '  ✓ approved' : ((s.PhotoUrl && s.SignatureUrl) ? '  ✓ captured' : ''));
+          (isApproved(s) ? '  ✓ approved' : ((s.PhotoUrl && s.SignatureUrl) ? '  ✓ captured' : ''));
         if (i === activeTab) opt.selected = true;
         sel.appendChild(opt);
       });
@@ -1409,7 +1418,7 @@
       document.getElementById('approveSection').style.display = students.length ? 'block' : 'none';
       document.getElementById('assignInput').value = s.AssignedId || '';
       document.getElementById('assignStatus').textContent = '';
-      document.getElementById('verifyStatus').textContent = s.Approved ? 'Approved ✓' : '';
+      document.getElementById('verifyStatus').textContent = isApproved(s) ? 'Approved ✓' : '';
     }
 
     function assignId() {

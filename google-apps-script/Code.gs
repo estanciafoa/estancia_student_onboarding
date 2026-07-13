@@ -539,7 +539,7 @@ function getFlatForReview(flat) {
 
   const idx = {};
   header.forEach((h, i) => { idx[h] = i; });
-  const ACTIVEISH = { Submitted: 1, Verified: 1, Active: 1, InForm: 1 };
+  const ACTIVEISH = { Submitted: 1, Verified: 1, Active: 1, InForm: 1, Approved: 1 };
 
   const students = values
     .filter(r => String(r[idx.HouseId]).trim() === flat && ACTIVEISH[String(r[idx.Status])])
@@ -817,7 +817,7 @@ function debugFlat_(flat) {
     totalDataRows: values.length,
     matchesForFlat: matches,
     reviewReturns: reviewCount,
-    allowedStatuses: ['Submitted', 'Verified', 'Active', 'InForm'],
+    allowedStatuses: ['Submitted', 'Verified', 'Active', 'InForm', 'Approved'],
     distinctHouseIds: Object.keys(houseCounts)
   };
 }
@@ -921,7 +921,7 @@ function countFlatStudents_(flat) {
   const header = sh.header;
   const iHouse = header.indexOf('HouseId');
   const iStatus = header.indexOf('Status');
-  const ACTIVEISH = { Submitted: 1, Verified: 1, Active: 1, InForm: 1 };
+  const ACTIVEISH = { Submitted: 1, Verified: 1, Active: 1, InForm: 1, Approved: 1 };
   const values = sh.sheet.getDataRange().getValues();
   values.shift();
   return values.filter(r => String(r[iHouse]) === String(flat) && ACTIVEISH[String(r[iStatus])]).length;
@@ -1111,7 +1111,7 @@ function generateAnnexurePdf(flat) {
   for (let n = 1; n <= MAX_STUDENTS_PER_HOUSE; n++) {
     const s = students[n - 1] || {};
     const tag = '{{s' + n + '_';
-    replaceTokenWithImage_(body, tag + 'photo}}', s.PhotoUrl, 90, 110, true);   // fit width to cell, keep height
+    replaceTokenWithImage_(body, tag + 'photo}}', s.PhotoUrl, 90, 110);   // fit to cell width, aspect ratio preserved
     replaceTokenWithImage_(body, tag + 'sig}}', s.SignatureUrl, 120, 45);
     // Aadhaar + College/Company ID scans (front = ..1, back = ..2). Each may hold
     // several files joined by " , "; we insert the first two. Missing ones clear blank.
@@ -1332,6 +1332,15 @@ function publishApprovedStudent(payload) {
       while (dupes.hasNext()) dupes.next().setTrashed(true);
       folder.createFile(blob.setName(name));
       photoCopied = true;
+    }
+    // Persist approval by advancing the lifecycle Status to 'Approved' on the main Students
+    // sheet, so reloading the flat shows it approved (which re-enables the export buttons).
+    const iStatus = found.header.indexOf('Status');
+    if (iStatus >= 0) {
+      const srow = found.row.slice();
+      srow[iStatus] = 'Approved';
+      getSpreadsheet_().getSheetByName(SHEET_STUDENTS)
+        .getRange(found.rowNumber, 1, 1, srow.length).setValues([srow]);
     }
   }
 
