@@ -130,6 +130,7 @@ function doPost(e) {
       case 'saveFlatDetails':        result = saveFlatDetails(body.flat || payload.flat, payload.fields); break;
       case 'assignStudentId':        result = assignStudentId(payload.studentId, payload.assignedId); break;
       case 'publishApprovedStudent': result = publishApprovedStudent(payload); break;
+      case 'emailOwnerDraft':        result = emailOwnerDraft(body.flat || (payload && payload.flat)); break;
       case 'webUploadAgreement':     result = webUploadAgreement(payload.flat, payload.base64, payload.fileName, payload.mimeType); break;
       default: throw new Error('Unknown action: ' + body.action);
     }
@@ -1335,6 +1336,63 @@ function publishApprovedStudent(payload) {
   }
 
   return { ok: true, appended: appended, alreadyInSheet: alreadyInSheet, photoCopied: photoCopied };
+}
+
+// Fixed CC recipients on every owner email (besides the flat's students).
+const OWNER_EMAIL_CC = ['estanciafoa@gmail.com', 'efoa.em@estancia.com'];
+
+// Builds a Gmail *draft* to the flat owner with the freshly-generated Annexure 2A PDF
+// attached, CC'ing every student's email plus the fixed EFOA addresses. Returns the draft's
+// message id so the admin page can open it in Gmail's compose window to review & send.
+// (A draft is the only way to pre-attach a file — a plain compose URL can't carry attachments.)
+// NOTE: the draft is created in the Google account that OWNS/RUNS this Apps Script.
+function emailOwnerDraft(flat) {
+  flat = String(flat || '').trim();
+  if (!flat) throw new Error('Flat number is required.');
+
+  const data = getFlatForReview(flat);
+  const students = data.students || [];
+  const flatInfo = data.flat || {};
+  const ownerEmail = String(flatInfo.OwnerEmail || '').trim();
+  if (!ownerEmail) throw new Error('No owner email on file for this flat. Add it in the Owner details (left pane) and save, then retry.');
+
+  // Generate/refresh the Annexure 2A PDF and grab its bytes to attach.
+  const gen = generateAnnexurePdf(flat);
+  const pdfBlob = gen && gen.fileUrl ? driveBlobFromUrl_(gen.fileUrl) : null;
+  if (pdfBlob) pdfBlob.setName('Annexure_2A_Flat_' + flat + '.pdf');
+
+  // CC = each student's email + the fixed EFOA addresses (deduped, owner excluded).
+  const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  const seen = {}; seen[ownerEmail.toLowerCase()] = 1;
+  const cc = [];
+  const add = function (e) {
+    e = String(e || '').trim();
+    if (emailRe.test(e) && !seen[e.toLowerCase()]) { seen[e.toLowerCase()] = 1; cc.push(e); }
+  };
+  students.forEach(function (s) { add(s.Email); });
+  OWNER_EMAIL_CC.forEach(add);
+
+  const names = students.map(function (s) { return String(s.Name || '').trim(); }).filter(Boolean);
+  const ownerName = String(flatInfo.OwnerName || '').trim() || 'Owner';
+  const subject = 'EFOA Annexure 2A — Flat ' + flat + ' (Tripartite Undertaking)';
+  const body =
+    'Dear ' + ownerName + ',\n\n' +
+    'Please find attached the completed EFOA Annexure 2A (Tripartite Undertaking & Affirmation) for Flat ' +
+    flat + ', covering the resident(s):\n' +
+    (names.length ? names.map(function (n) { return '  • ' + n; }).join('\n') : '  (none listed)') + '\n\n' +
+    'Kindly review and retain a copy for your records. Your resident(s) and the Estancia Flat Owners ' +
+    'Association (EFOA) are copied on this email.\n\n' +
+    'For any questions, please contact the EFOA office.\n\n' +
+    'Regards,\nEstancia Flat Owners Association (EFOA)';
+
+  const options = { cc: cc.join(','), name: 'Estancia Flat Owners Association' };
+  if (pdfBlob) options.attachments = [pdfBlob];
+  const draft = GmailApp.createDraft(ownerEmail, subject, body, options);
+
+  let messageId = '';
+  try { messageId = draft.getMessageId(); } catch (e) { messageId = ''; }
+
+  return { ok: true, to: ownerEmail, cc: cc, subject: subject, attached: !!pdfBlob, messageId: messageId };
 }
 
 function escapeRegex_(s) {

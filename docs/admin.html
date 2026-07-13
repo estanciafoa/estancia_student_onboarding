@@ -510,6 +510,7 @@
   <div class="bottomband">
     <span class="bb-label">Flat exports</span>
     <button id="genPdfBtn" class="exp" onclick="genPdf()" disabled>Download Annexure 2A PDF</button>
+    <button id="emailOwnerBtn" class="exp" onclick="emailOwner()" disabled>✉ Email owner (Annexure 2A)</button>
     <button id="csvBtn" class="exp" onclick="copyCsv()" disabled>Copy Data</button>
     <button id="dlPhotosBtn" class="exp" onclick="downloadAllPhotos()" disabled>Download Photos</button>
     <span class="bb-status" id="bbStatus"></span>
@@ -975,6 +976,7 @@
       getFlatAgreementDoc: function (p) { return [p.flat]; },
       getCompareDocs: function (p) { return [p.studentId]; },
       generateAnnexurePdf: function (p) { return [p.flat]; },
+      emailOwnerDraft: function (p) { return [p.flat]; },
       saveFlatDetails: function (p) { return [p.flat, p.fields]; },
       saveStudentDetails: function (p) { return [p.studentId, p.fields]; },
       deleteStudent: function (p) { return [p.studentId]; },
@@ -1090,6 +1092,32 @@
         .catch(function (e) {
           btn.disabled = false;
           setStatus(e && e.message ? e.message : 'PDF generation failed.', false);
+        });
+    }
+
+    // Prepare a Gmail draft to the flat owner with the Annexure 2A attached (CC: all
+    // students + the fixed EFOA addresses), then open it in Gmail to review & send.
+    // The window is opened synchronously on click so the browser doesn't block the popup.
+    function emailOwner() {
+      var flat = document.getElementById('flat').value.trim();
+      if (!flat) return bbSet('Load a flat first.', false);
+      var win = window.open('about:blank', '_blank');   // reused once the draft is ready
+      var btn = document.getElementById('emailOwnerBtn'); btn.disabled = true;
+      bbSet('Preparing the owner email (attaching Annexure 2A)…', true);
+      callServer('emailOwnerDraft', { flat: flat })
+        .then(function (r) {
+          btn.disabled = false;
+          var url = r && r.messageId
+            ? 'https://mail.google.com/mail/u/0/#drafts?compose=' + r.messageId
+            : 'https://mail.google.com/mail/u/0/#drafts';
+          if (win) win.location = url; else window.open(url, '_blank');
+          bbSet('Draft ready for ' + (r && r.to ? r.to : 'the owner') +
+                (r && r.attached ? ' with Annexure 2A attached' : '') + ' — opening Gmail to send.', true);
+        })
+        .catch(function (e) {
+          btn.disabled = false;
+          if (win) win.close();
+          bbSet(e && e.message ? e.message : 'Could not prepare the email.', false);
         });
     }
 
@@ -1228,7 +1256,7 @@
       if (msg) setStatus(msg, ok);
     }
     function setExportsEnabled(on) {
-      ['genPdfBtn', 'csvBtn', 'dlPhotosBtn'].forEach(function (id) {
+      ['genPdfBtn', 'emailOwnerBtn', 'csvBtn', 'dlPhotosBtn'].forEach(function (id) {
         var b = document.getElementById(id); if (b) b.disabled = !on;
       });
     }
