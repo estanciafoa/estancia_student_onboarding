@@ -411,8 +411,8 @@
     <!-- CENTER: tabs + details -->
     <div class="pane center">
       <div class="pane-head">Students
-        <button class="mini" id="copyRowBtn" onclick="copyStudentRow()" title="Copy this student's row" style="display:none">📋</button>
-        <button class="mini" id="deleteRowBtn" onclick="deleteStudentRow()" title="Delete this student (e.g. a duplicate)" style="display:none">🗑</button>
+        <button class="mini" id="copyRowBtn" onclick="copyStudentRow()" title="Copy this student's row" style="display:none">Copy</button>
+        <button class="mini" id="deleteRowBtn" onclick="deleteStudentRow()" title="Delete this student (e.g. a duplicate)" style="display:none">Delete</button>
         <span class="hint" id="centerHint"></span>
         <span class="head-actions">
           <select id="studentSelect" onchange="switchTab(this.selectedIndex)" style="display:none"></select>
@@ -979,6 +979,7 @@
       saveStudentDetails: function (p) { return [p.studentId, p.fields]; },
       deleteStudent: function (p) { return [p.studentId]; },
       assignStudentId: function (p) { return [p.studentId, p.assignedId]; },
+      publishApprovedStudent: function (p) { return [p]; },
       saveStudentVerification: function (p) { return [p]; },
       webUploadAgreement: function (p) { return [p.flat, p.base64, p.fileName, p.mimeType]; }
     };
@@ -1131,8 +1132,9 @@
       var d = parseDate(v);
       return d ? (ordinal(d.getDate()) + ' ' + MONTHS[d.getMonth()] + ' ' + d.getFullYear()) : String(v == null ? '' : v).trim();
     }
-    // One student → the 8 column values (tab-joined elsewhere).
-    function studentRowArr(s, flat, validFrom) {
+    // One student → the 8 column values. `update` sets the Update flag (default 'N'; the
+    // approve flow passes 'U'). Returns the array; studentRowArr tab-joins it for clipboard.
+    function studentRowValues(s, flat, validFrom, update) {
       return [
         s.Name || '',
         s.HouseId || flat,
@@ -1141,9 +1143,10 @@
         maskTail(s.AadharNumber),
         maskTail(s.Phone),
         s.AssignedId || '',            // ID = assigned student id
-        'N'                            // Update — always N
-      ].map(tsvCell).join('\t');
+        update || 'N'                  // Update flag
+      ].map(tsvCell);
     }
+    function studentRowArr(s, flat, validFrom) { return studentRowValues(s, flat, validFrom, 'N').join('\t'); }
     function copyCsv() {
       if (!students.length) return setStatus('Load a flat first.', false);
       var flat = document.getElementById('flat').value.trim();
@@ -1245,8 +1248,20 @@
           s._docs = null;                    // re-fetch images (renamed)
           renderDetails(); renderDocs(); renderTabs();
           setExportsEnabled(true);
+          // Publish to the approved-students sheet (Update = U) + copy the face photo to Drive.
+          var flat = document.getElementById('flat').value.trim();
+          var validFrom = fmtDate(document.getElementById('fAgreementDate').value.trim());
+          var row = studentRowValues(s, flat, validFrom, 'U');
+          vSet('Approved — publishing to the approved sheet…', true);
+          return callServer('publishApprovedStudent', { studentId: s.StudentId, row: row });
+        })
+        .then(function (p) {
           btn.disabled = false;
-          vSet('Verified & approved — files renamed to "' + r.assignedId + '.*".', true);
+          var bits = ['files renamed to "' + s.AssignedId + '.*"'];
+          bits.push(p && p.appended ? 'added to the approved sheet'
+                    : (p && p.alreadyInSheet ? 'already in the approved sheet' : 'sheet unchanged'));
+          if (p && p.photoCopied) bits.push('photo copied to the folder');
+          vSet('Verified & approved — ' + bits.join(', ') + '.', true);
         })
         .catch(function (e) {
           btn.disabled = false;

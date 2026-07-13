@@ -7,6 +7,12 @@ const GEMINI_MODEL = 'gemini-2.0-flash';
 
 // Target spreadsheet (opened by id so the script need not be container-bound).
 const SPREADSHEET_ID = '1ViLI-JdrVVOAIGGhABH-vzm_6bfquL8FZHXvpGbnZ40';
+// On approval, each student's export row is appended here (Update column = "U") and their
+// face photo is copied to the Drive folder below (named <AssignedId>.jpeg).
+const APPROVED_SHEET_ID = '1EDvYjDQVIpwib5PmQ5sbSchJI_B5HNHWNomXRLOxtk4';
+const APPROVED_PHOTO_FOLDER_ID = '133agflV9e_jlgDZznQE1TCgG1g5pJaVY';
+// Columns of the approved-students export (same shape as the admin "Copy Data" export).
+const APPROVED_COLS = ['Name', 'Flat', 'ValidFrom', 'ValidTill', 'Aadhar', 'Mobile', 'ID', 'Update'];
 // Default Drive folder for per-flat subfolders; a IMAGE_FOLDER_ID script property overrides this.
 const DEFAULT_IMAGE_FOLDER_ID = '1Jpj5eVuKdXEichmJ_hx54mUA4Z8K20c4';
 // Default Annexure 2A template Google Doc; an ANNEXURE_TEMPLATE_ID script property overrides this.
@@ -123,6 +129,7 @@ function doPost(e) {
       case 'deleteStudent':          result = deleteStudent(body.studentId || (payload && payload.studentId)); break;
       case 'saveFlatDetails':        result = saveFlatDetails(body.flat || payload.flat, payload.fields); break;
       case 'assignStudentId':        result = assignStudentId(payload.studentId, payload.assignedId); break;
+      case 'publishApprovedStudent': result = publishApprovedStudent(payload); break;
       case 'webUploadAgreement':     result = webUploadAgreement(payload.flat, payload.base64, payload.fileName, payload.mimeType); break;
       default: throw new Error('Unknown action: ' + body.action);
     }
@@ -1267,6 +1274,67 @@ function assignStudentId(studentId, assignedId) {
     .getRange(found.rowNumber, 1, 1, row.length).setValues([row]);
 
   return { ok: true, assignedId: safe };
+}
+
+// Called right after a student is approved. Appends their export row (Update = "U") to the
+// approved-students sheet and copies their face photo to the shared Drive folder as
+// <AssignedId>.jpeg. Both steps de-duplicate, so re-approving the same student is a no-op.
+// `payload.row` is the 8 values (in APPROVED_COLS order) already formatted by the admin page.
+function publishApprovedStudent(payload) {
+  payload = payload || {};
+  const studentId = String(payload.studentId || '').trim();
+  const values = payload.row;
+  if (!studentId) throw new Error('studentId is required.');
+  if (!Array.isArray(values) || values.length !== APPROVED_COLS.length) {
+    throw new Error('A row of ' + APPROVED_COLS.length + ' values is required.');
+  }
+
+  const byName = {};
+  APPROVED_COLS.forEach(function (c, i) { byName[c] = values[i]; });
+  byName.Update = 'U';                                   // enforce the Update flag server-side
+  const assignedId = String(byName.ID || '').trim();
+  const norm = function (h) { return String(h == null ? '' : h).trim().toLowerCase(); };
+
+  // ---- append to the approved-students sheet (first tab), de-duped by the ID column ----
+  const sheet = SpreadsheetApp.openById(APPROVED_SHEET_ID).getSheets()[0];
+  if (sheet.getLastRow() === 0) sheet.appendRow(APPROVED_COLS.slice());   // lay down a header if empty
+  const width = Math.max(sheet.getLastColumn(), APPROVED_COLS.length);
+  const headerRow = sheet.getRange(1, 1, 1, width).getValues()[0];
+  const idCol = headerRow.findIndex(function (h) { return norm(h) === 'id'; });
+
+  let appended = false, alreadyInSheet = false;
+  if (assignedId && idCol >= 0 && sheet.getLastRow() >= 2) {
+    const existing = sheet.getRange(2, idCol + 1, sheet.getLastRow() - 1, 1).getValues();
+    alreadyInSheet = existing.some(function (r) { return String(r[0]).trim() === assignedId; });
+  }
+  if (!alreadyInSheet) {
+    // Map our values onto the sheet's actual columns by header name; if none match
+    // (unlabelled sheet), fall back to the raw APPROVED_COLS order.
+    const mapped = headerRow.map(function (h) {
+      const key = APPROVED_COLS.find(function (c) { return norm(c) === norm(h); });
+      return key ? byName[key] : '';
+    });
+    sheet.appendRow(mapped.some(function (v) { return v !== ''; }) ? mapped : values);
+    appended = true;
+  }
+
+  // ---- copy the face photo to the shared folder as <AssignedId>.jpeg ----
+  let photoCopied = false;
+  const found = findStudentRowById_(studentId);
+  if (found) {
+    const iPhoto = found.header.indexOf('PhotoUrl');
+    const blob = iPhoto >= 0 ? driveBlobFromUrl_(found.row[iPhoto]) : null;
+    if (blob) {
+      const folder = DriveApp.getFolderById(APPROVED_PHOTO_FOLDER_ID);
+      const name = (assignedId || studentId) + '.jpeg';
+      const dupes = folder.getFilesByName(name);           // replace an older copy if present
+      while (dupes.hasNext()) dupes.next().setTrashed(true);
+      folder.createFile(blob.setName(name));
+      photoCopied = true;
+    }
+  }
+
+  return { ok: true, appended: appended, alreadyInSheet: alreadyInSheet, photoCopied: photoCopied };
 }
 
 function escapeRegex_(s) {
