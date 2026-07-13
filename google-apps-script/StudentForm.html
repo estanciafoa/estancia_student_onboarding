@@ -175,6 +175,13 @@
           <input type="file" id="collegeFile" accept="image/*,application/pdf" multiple onchange="onFile('college')">
           <div class="filelist" id="collegeList"></div>
           <div class="hint">Add front &amp; back as two photos, or one combined PDF — from your camera, gallery, or files. You can also copy an image and paste it (tap a box first, then paste).</div>
+
+          <label style="margin-top:14px">Your photo (optional)</label>
+          <div class="upload" id="photoBox" onclick="pickPhoto()">Tap to add your photo — camera or gallery</div>
+          <input type="file" id="photoFile" accept="image/*" capture="user" onchange="onPhotoFile()">
+          <img id="photoPreview" class="thumb" style="display:none" alt="your photo">
+          <button type="button" class="sign-clear" id="photoRemove" style="display:none" onclick="removeSelfPhoto()">Remove photo</button>
+          <div class="hint">A clear front-facing face photo. Optional — the EFOA office can also take it.</div>
         </div>
       </div>
 
@@ -244,7 +251,7 @@
     <div class="done" id="done" style="display:none">
       <div class="big">✅</div>
       <h2 style="text-transform:none;color:#202124">Thank you!</h2>
-      <p class="sub">Your details, agreement and signature have been submitted. Please visit the EFOA office for your photo. If your signature needs correcting, just reopen this form and sign again.</p>
+      <p class="sub">Your details, agreement and signature have been submitted. If you didn't add a photo, the EFOA office will take one. If your signature or photo needs correcting, just reopen this form and submit again.</p>
     </div>
   </div>
 
@@ -253,6 +260,8 @@
     var INIT_FLAT = '<?= flat ?>';
     // Each document can hold multiple files (front + back) or a single PDF.
     var docs = { aadhar: [], college: [] };
+    // Optional single face photo the resident uploads: { base64, mimeType } or null.
+    var selfPhoto = null;
 
     // Which document box paste should target (last one the user tapped).
     var activeKind = 'aadhar';
@@ -283,7 +292,7 @@
     function saveDraft() {
       var fields = {};
       DRAFT_FIELDS.forEach(function (id) { var el = document.getElementById(id); if (el) fields[id] = el.value; });
-      var data = { savedAt: Date.now(), fields: fields, docs: docs };
+      var data = { savedAt: Date.now(), fields: fields, docs: docs, selfPhoto: selfPhoto };
       try {
         localStorage.setItem(DRAFT_KEY, JSON.stringify(data));
       } catch (e) {
@@ -308,6 +317,7 @@
           docs.college = data.docs.college || [];
           renderList('aadhar'); renderList('college');
         }
+        if (data.selfPhoto && data.selfPhoto.base64) { selfPhoto = data.selfPhoto; showSelfPhoto(); }
       } catch (_) {}
     }
 
@@ -499,6 +509,43 @@
       saveDraft();   // keep the draft in sync when files are added / removed
     }
 
+    // --- Optional resident face photo ---------------------------------------
+    function pickPhoto() { document.getElementById('photoFile').click(); }
+
+    function onPhotoFile() {
+      var input = document.getElementById('photoFile');
+      var f = input.files && input.files[0]; input.value = '';
+      if (!f) return;
+      var reader = new FileReader();
+      reader.onload = function () {
+        selfPhoto = { base64: String(reader.result).split(',')[1], mimeType: f.type || 'image/jpeg' };
+        showSelfPhoto();
+        saveDraft();
+      };
+      reader.readAsDataURL(f);
+    }
+
+    // Reflect the current selfPhoto in the UI (preview + box label + remove button).
+    function showSelfPhoto() {
+      var img = document.getElementById('photoPreview');
+      var box = document.getElementById('photoBox');
+      var rm = document.getElementById('photoRemove');
+      if (selfPhoto && selfPhoto.base64) {
+        img.src = 'data:' + (selfPhoto.mimeType || 'image/jpeg') + ';base64,' + selfPhoto.base64;
+        img.style.display = 'block';
+        rm.style.display = 'inline-block';
+        box.classList.add('has');
+        box.textContent = 'Photo added — tap to replace';
+      } else {
+        img.src = ''; img.style.display = 'none';
+        rm.style.display = 'none';
+        box.classList.remove('has');
+        box.textContent = 'Tap to add your photo — camera or gallery';
+      }
+    }
+
+    function removeSelfPhoto() { selfPhoto = null; showSelfPhoto(); saveDraft(); }
+
     // --- Tripartite agreement + on-screen signature --------------------------
     function tpBoxes() { return document.querySelectorAll('#agreeList input.tp'); }
     function allAgreed() {
@@ -629,6 +676,8 @@
         courseName: val('courseName'), academicYear: val('academicYear'), idValidUpto: val('idValidUpto'),
         tenancyPeriod: val('tenancyPeriod'), agreementDate: val('agreementDate'),
         aadharFiles: docs.aadhar, collegeFiles: docs.college,
+        studentPhotoBase64: selfPhoto ? selfPhoto.base64 : '',
+        studentPhotoMime: selfPhoto ? selfPhoto.mimeType : '',
         agreementAccepted: true,
         signatureBase64: signDrawn ? document.getElementById('signPad').toDataURL('image/png').split(',')[1] : ''
       };

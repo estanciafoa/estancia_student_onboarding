@@ -46,6 +46,7 @@ const STUDENTS_HEADER = [
   'VehicleNumber',
   'CollegeIdPhotoUrl',
   'SignatureUrl',
+  'SelfPhotoUrl',
   'AssignedId',
   'CourseName',
   'IdValidUpto',
@@ -473,6 +474,11 @@ function submitStudentSelf(payload) {
   const sigB64 = String(payload.signatureBase64 || '').replace(/^data:[^,]+,/, '').trim();
   const signatureUrl = sigB64 ? savePngInFolder_(folder, sigB64, base + '_sign.png') : '';
 
+  // Optional face photo the resident uploaded. Kept separate from PhotoUrl (admin capture)
+  // so an admin retake never destroys it; it's the effective photo until the admin saves one.
+  const selfPhotoB64 = String(payload.studentPhotoBase64 || '').replace(/^data:[^,]+,/, '').trim();
+  const selfPhotoUrl = selfPhotoB64 ? saveImageInFolder_(folder, selfPhotoB64, base + '_selfphoto.jpg') : '';
+
   const fields = {
     Timestamp: new Date(),
     StudentId: studentId,
@@ -502,6 +508,8 @@ function submitStudentSelf(payload) {
     fields.AgreementStatus = 'Signed';
     fields.SignedAt = new Date();
   }
+  // Only set when a photo was uploaded this submit, so a later edit without one never wipes it.
+  if (selfPhotoUrl) fields.SelfPhotoUrl = selfPhotoUrl;
 
   const existing = payload.studentId ? findStudentRowById_(studentId) : null;
   if (existing) {
@@ -673,6 +681,7 @@ function getCompareDocs(studentId) {
   const aadhar = urls(get('AadharPhotoUrl')).map(toImg).filter(Boolean);
   const college = urls(get('CollegeIdPhotoUrl')).map(toImg).filter(Boolean);
   const photo = get('PhotoUrl') ? toImg(get('PhotoUrl')) : null;
+  const selfPhoto = get('SelfPhotoUrl') ? toImg(get('SelfPhotoUrl')) : null;
   const signature = get('SignatureUrl') ? toImg(get('SignatureUrl')) : null;
 
   let agreement = null;
@@ -699,6 +708,7 @@ function getCompareDocs(studentId) {
     aadhar: aadhar,
     college: college,
     photo: photo,
+    selfPhoto: selfPhoto,
     signature: signature,
     agreement: agreement
   };
@@ -1111,7 +1121,7 @@ function generateAnnexurePdf(flat) {
   for (let n = 1; n <= MAX_STUDENTS_PER_HOUSE; n++) {
     const s = students[n - 1] || {};
     const tag = '{{s' + n + '_';
-    replaceTokenWithImage_(body, tag + 'photo}}', s.PhotoUrl, 90, 110);   // fit to cell width, aspect ratio preserved
+    replaceTokenWithImage_(body, tag + 'photo}}', s.PhotoUrl || s.SelfPhotoUrl, 90, 110);   // admin photo, else the resident's; fit to cell width, aspect preserved
     replaceTokenWithImage_(body, tag + 'sig}}', s.SignatureUrl, 120, 45);
     // Aadhaar + College/Company ID scans (front = ..1, back = ..2). Each may hold
     // several files joined by " , "; we insert the first two. Missing ones clear blank.
@@ -1324,7 +1334,9 @@ function publishApprovedStudent(payload) {
   const found = findStudentRowById_(studentId);
   if (found) {
     const iPhoto = found.header.indexOf('PhotoUrl');
-    const blob = iPhoto >= 0 ? driveBlobFromUrl_(found.row[iPhoto]) : null;
+    const iSelf = found.header.indexOf('SelfPhotoUrl');
+    const photoUrl = (iPhoto >= 0 ? found.row[iPhoto] : '') || (iSelf >= 0 ? found.row[iSelf] : '');
+    const blob = photoUrl ? driveBlobFromUrl_(photoUrl) : null;
     if (blob) {
       const folder = DriveApp.getFolderById(APPROVED_PHOTO_FOLDER_ID);
       const name = (assignedId || studentId) + '.jpeg';

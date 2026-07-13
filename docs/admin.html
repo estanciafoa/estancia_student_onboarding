@@ -1322,8 +1322,9 @@
           var get = s._docs ? Promise.resolve(s._docs)
             : callServer('getCompareDocs', { studentId: s.StudentId }).then(function (d) { s._docs = d || {}; return s._docs; });
           return get.then(function (d) {
-            if (d && d.photo && d.photo.base64) {
-              downloadDataUrl('data:' + (d.photo.mime || 'image/jpeg') + ';base64,' + d.photo.base64, getIdBase(s) + '.jpeg');
+            var ph = d && (d.photo || d.selfPhoto);   // admin capture, else resident's upload
+            if (ph && ph.base64) {
+              downloadDataUrl('data:' + (ph.mime || 'image/jpeg') + ';base64,' + ph.base64, getIdBase(s) + '.jpeg');
               count++;
             }
           });
@@ -1399,7 +1400,7 @@
       students.forEach(function (s, i) {
         var opt = document.createElement('option');
         opt.textContent = (s.Name || ('Student ' + (i + 1))) +
-          (isApproved(s) ? '  ✓ approved' : ((s.PhotoUrl && s.SignatureUrl) ? '  ✓ captured' : ''));
+          (isApproved(s) ? '  ✓ approved' : (((s.PhotoUrl || s.SelfPhotoUrl) && s.SignatureUrl) ? '  ✓ captured' : ''));
         if (i === activeTab) opt.selected = true;
         sel.appendChild(opt);
       });
@@ -1486,21 +1487,27 @@
       document.getElementById('savePhotoBtn').disabled = true;
       document.getElementById('photoStatus').textContent = '';
       var pv = document.getElementById('photoPreview');
-      var existing = s._docs && s._docs.photo;
-      if (existing) {
-        pv.src = 'data:' + (existing.mime || 'image/jpeg') + ';base64,' + existing.base64;
+      // Base photo shown in the frame: the admin's saved capture if any, else the resident's
+      // uploaded photo. An admin retake overlaps this; the ✕ reverts to it (see removePhoto).
+      var adminPhoto = s._docs && s._docs.photo;
+      var selfPhoto = s._docs && s._docs.selfPhoto;
+      var base = adminPhoto || selfPhoto;
+      if (base) {
+        pv.src = 'data:' + (base.mime || 'image/jpeg') + ';base64,' + base.base64;
         setPhotoState('photo');
       } else {
         pv.src = ''; setPhotoState('empty');
       }
-      document.getElementById('dlPhotoBtn').disabled = !existing;
-      document.getElementById('editPhotoBtn').disabled = !existing;
+      document.getElementById('dlPhotoBtn').disabled = !base;
+      document.getElementById('editPhotoBtn').disabled = !base;
       document.getElementById('photoExisting').innerHTML =
         (!s._docs && s._docsLoading)
           ? '<span class="ph-spin" style="display:inline-block;width:15px;height:15px;border-width:2px;vertical-align:middle"></span> Loading photo…'
-          : existing
-            ? 'Photo on file — Download saves it as <b>' + esc(getIdBase(s)) + '.jpeg</b>. Take or upload a new one to replace it.'
-            : 'No photo yet — take one with the camera or upload an image.';
+          : adminPhoto
+            ? 'Admin photo on file — Download saves it as <b>' + esc(getIdBase(s)) + '.jpeg</b>. Take or upload a new one to replace it.'
+            : selfPhoto
+              ? 'Student-uploaded photo. If it looks good, just assign the Student ID. To replace it, take/upload a new one; press ✕ to return to this photo.'
+              : 'No photo yet — take one with the camera or upload an image.';
     }
 
     // ---------- center: read tripartite + capture signature (in person) ----------
@@ -1691,15 +1698,14 @@
     // Discard the currently-shown/captured photo (does not delete an already-saved photo
     // from Drive — capture or upload a new one and Save to replace that).
     function removePhoto() {
-      capturedPhoto = '';
-      document.getElementById('photoPreview').src = '';
-      document.getElementById('photoFile').value = '';
-      document.getElementById('photoCapture').value = '';
-      setPhotoState('empty');
-      document.getElementById('savePhotoBtn').disabled = true;
-      document.getElementById('dlPhotoBtn').disabled = true;
-      document.getElementById('editPhotoBtn').disabled = true;
-      document.getElementById('photoStatus').textContent = 'Photo removed — take or upload a new one.';
+      // Discard the current retake and reveal the on-file base photo — the resident's
+      // uploaded photo when the admin hasn't saved one (else the admin's saved photo).
+      var s = students[activeTab] || {};
+      var hadBase = s._docs && (s._docs.photo || s._docs.selfPhoto);
+      renderPhoto();   // re-renders the base photo (or the empty placeholder)
+      document.getElementById('photoStatus').textContent = hadBase
+        ? 'Reverted to the photo on file.'
+        : 'Photo removed — take or upload a new one.';
     }
 
     function savePhoto() {
@@ -1710,6 +1716,7 @@
       callServer('saveStudentVerification', { studentId: s.StudentId, studentPhotoBase64: capturedPhoto })
         .then(function () {
           s.PhotoUrl = s.PhotoUrl || 'captured';   // mark present so the tab can show ✓
+          if (s._docs) s._docs.photo = { base64: capturedPhoto, mime: 'image/jpeg' };   // becomes the base photo
           document.getElementById('photoStatus').textContent = 'Photo saved ✓';
           document.getElementById('photoExisting').textContent = 'Photo saved for ' + (s.Name || 'this student') + '.';
           renderTabs();
