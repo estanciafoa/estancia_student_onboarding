@@ -580,6 +580,11 @@
       c.addEventListener('pointerup', end);
       c.addEventListener('pointerleave', end);
       c.addEventListener('pointercancel', end);
+      // iOS Safari (especially inside an iframe) ignores touch-action:none on a canvas, so
+      // the page scrolls while signing. Cancel the touch default explicitly — this must be
+      // a non-passive listener. The pointer* handlers above still do the actual drawing.
+      c.addEventListener('touchstart', function (e) { e.preventDefault(); }, { passive: false });
+      c.addEventListener('touchmove', function (e) { e.preventDefault(); }, { passive: false });
     }
 
     // Match the canvas backing store to its displayed size — only once it is visible.
