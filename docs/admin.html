@@ -492,7 +492,7 @@
 
     <!-- RIGHT: aadhaar + id -->
     <div class="pane right">
-      <div class="pane-head">Aadhaar &amp; ID <span class="hint">double-tap to zoom · drag to pan</span>
+      <div class="pane-head">Aadhaar &amp; ID <span class="hint">double-tap to zoom · drag to pan · shift-drag to magnify</span>
         <span class="head-actions">
           <span class="zoomctl">
             <button onclick="zoomPane('R',-1)" title="Zoom out">&minus;</button>
@@ -603,6 +603,7 @@
       document.getElementById('agreeBody').addEventListener('dblclick', function (e) { zoomAtPoint('L', e); });
       document.getElementById('docBody').addEventListener('dblclick', function (e) { zoomAtPoint('R', e); });
       setupRegionMagnifier(document.getElementById('agreeBody'));
+      setupRegionMagnifier(document.getElementById('docBody'));   // Aadhaar & ID: shift-drag to magnify
       setupCropDrag();
       initSignPad();
     });
