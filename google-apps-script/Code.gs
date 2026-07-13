@@ -83,10 +83,11 @@ function doGet(e) {
 
   // Default route serves the per-student self-fill form (the primary flow).
   // ?page=legacy serves the original 6-tab onboarding tool (Index.html).
+  // The admin page is no longer served here — it lives on GitHub Pages
+  // (docs/admin.html) and talks to this script over the doPost JSON API.
   const page = (e && e.parameter && e.parameter.page) || '';
   let file = 'StudentForm', title = 'Student Details — Annexure 2A';
   if (page === 'legacy') { file = 'Index'; title = 'Student Onboarding (legacy)'; }
-  else if (page === 'admin') { file = 'Admin'; title = 'Admin — Verify & Compare'; }
   const tmpl = HtmlService.createTemplateFromFile(file);
   tmpl.flat = (e && e.parameter && e.parameter.flat) || '';
   return tmpl

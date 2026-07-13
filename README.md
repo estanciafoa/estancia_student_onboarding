@@ -5,8 +5,9 @@
 > 1. **Students self-fill** a mobile **web form** (the default `doGet` route, share `…/exec?flat=<flat>`),
 >    uploading Aadhaar + college-ID. Owner + caretaker details are captured here too.
 > 2. Data → `Students` + `Flats` sheets; images → per-flat Drive folder.
-> 3. An **admin web page** (`…/exec?page=admin`) pulls a flat, shows the agreement,
->    Aadhaar and ID side-by-side for verification, and captures each student's **photo**.
+> 3. An **admin web page** (hosted on GitHub Pages, `docs/admin.html`) pulls a flat, shows
+>    the agreement, Aadhaar and ID side-by-side for verification, and captures each student's
+>    **photo**. It talks to the script over the token-guarded `doPost` JSON API.
 > 4. `generateAnnexurePdf(flat)` merges a **Google Doc template** → one combined PDF.
 >
 > Setup: see [`google-apps-script/ANNEXURE_TEMPLATE.md`](google-apps-script/ANNEXURE_TEMPLATE.md)
