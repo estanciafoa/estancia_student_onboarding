@@ -1630,6 +1630,18 @@ function geminiCall_(promptText, images) {
 
 // ---- Diagnostics: run these directly from the Apps Script editor ----
 
+// RUN THIS ONCE from the editor to grant the Gmail permission the "Email owner" feature
+// needs. A deployed web app can't show the consent popup — only running a function in the
+// editor can. It creates and immediately deletes a throwaway draft, which forces Apps
+// Script to request the gmail.compose scope. Accept the prompt, then redeploy the web app.
+function authorizeGmail() {
+  const d = GmailApp.createDraft('authcheck@example.com', 'EFOA authorization check',
+    'This throwaway draft is deleted automatically. It only exists to grant the Gmail permission.');
+  d.deleteDraft();
+  Logger.log('Gmail authorized — you can now use the Email owner button (after redeploying the web app).');
+  return 'ok';
+}
+
 // Confirms the API key + model work. Check View -> Logs after running.
 function pingGemini() {
   const apiKey = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
