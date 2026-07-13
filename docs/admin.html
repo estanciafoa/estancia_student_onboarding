@@ -65,6 +65,9 @@
     .pane-head::before { content: ''; flex: 0 0 auto; width: 4px; height: 15px; border-radius: 2px;
                          background: linear-gradient(180deg, var(--accent), var(--pri)); }
     .pane-head .hint { font-weight: 400; text-transform: none; letter-spacing: 0; color: #8a94a6; font-size: 12px; }
+    .appcount { font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 999px; white-space: nowrap;
+                text-transform: none; letter-spacing: 0; background: #eef2fb; color: var(--muted); }
+    .appcount.all { background: rgba(15,157,138,.16); color: var(--ok); }
     .pane-head .head-actions { margin-left: auto; display: flex; align-items: center; gap: 6px; }
     .pane-head .mini { display: inline-block; padding: 6px 10px; font-size: 12px; border: 1px solid var(--line);
                        border-radius: 7px; background: #eef2fb; color: var(--pri); font-weight: 600; cursor: pointer; }
@@ -312,6 +315,8 @@
     body.theme-dark .approve { border-top-color: #22303c; }
     body.theme-dark .pane-head { background: #102a38; color: var(--accent); }
     body.theme-dark .pane-head .hint { color: #7f93a3; }
+    body.theme-dark .appcount { background: #1b2733; color: #9fb1c0; }
+    body.theme-dark .appcount.all { background: rgba(15,157,138,.22); color: #49c6dd; }
     body.theme-dark .center .pane-body { background: var(--surface); }
     body.theme-dark .flatedit { background: var(--surface); }
     body.theme-dark input, body.theme-dark select, body.theme-dark textarea { background: #0f1a24; color: var(--dark); border-color: var(--line); }
@@ -415,6 +420,7 @@
         <button class="mini" id="deleteRowBtn" onclick="deleteStudentRow()" title="Delete this student (e.g. a duplicate)" style="display:none">Delete</button>
         <span class="hint" id="centerHint"></span>
         <span class="head-actions">
+          <span class="appcount" id="approvedCount" style="display:none"></span>
           <select id="studentSelect" onchange="switchTab(this.selectedIndex)" style="display:none"></select>
           <button class="mini" id="editDetailsBtn" onclick="startEditDetails()" title="Edit details" style="display:none">✎ Edit</button>
         </span>
@@ -1369,7 +1375,19 @@
       }
     }
 
+    // "X/Y approved" badge next to the Students dropdown.
+    function updateApprovedCount() {
+      var el = document.getElementById('approvedCount');
+      if (!el) return;
+      if (!students.length) { el.textContent = ''; el.style.display = 'none'; return; }
+      var n = students.filter(isApproved).length;
+      el.textContent = n + '/' + students.length + ' approved';
+      el.classList.toggle('all', n > 0 && n === students.length);
+      el.style.display = '';
+    }
+
     function renderTabs() {
+      updateApprovedCount();
       var sel = document.getElementById('studentSelect');
       var editBtn = document.getElementById('editDetailsBtn');
       var copyBtn = document.getElementById('copyRowBtn');
