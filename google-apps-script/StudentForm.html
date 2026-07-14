@@ -559,14 +559,13 @@
       var input = document.getElementById('photoFile');
       var f = input.files && input.files[0]; input.value = '';
       if (!f) return;
-      var reader = new FileReader();
-      reader.onload = function () {
-        selfPhoto = { base64: String(reader.result).split(',')[1], mimeType: f.type || 'image/jpeg' };
+      compressImageFile(f).then(function (out) {   // shrink the face photo like the ID uploads
+        if (!out) return;
+        selfPhoto = { base64: out.base64, mimeType: out.mimeType };
         selfPhotoOriginal = null;          // a fresh photo resets any prior background removal
         showSelfPhoto();
         saveDraft();
-      };
-      reader.readAsDataURL(f);
+      });
     }
 
     // Reflect the current selfPhoto in the UI (preview + box label + remove/background buttons).
@@ -616,13 +615,17 @@
             var u = URL.createObjectURL(cut);
             var img = new Image();
             img.onload = function () {
+              // Downscale + compress the result to the same budget as the ID uploads.
+              var scale = Math.min(1, COMPRESS_MAX_DIM / Math.max(img.naturalWidth, img.naturalHeight));
+              var cw = Math.max(1, Math.round(img.naturalWidth * scale));
+              var ch = Math.max(1, Math.round(img.naturalHeight * scale));
               var c = document.createElement('canvas');
-              c.width = img.naturalWidth; c.height = img.naturalHeight;
+              c.width = cw; c.height = ch;
               var ctx = c.getContext('2d');
-              ctx.fillStyle = bgColor; ctx.fillRect(0, 0, c.width, c.height);
-              ctx.drawImage(img, 0, 0);
+              ctx.fillStyle = bgColor; ctx.fillRect(0, 0, cw, ch);
+              ctx.drawImage(img, 0, 0, cw, ch);
               URL.revokeObjectURL(u);
-              resolve(c.toDataURL('image/jpeg', 0.9));
+              resolve(c.toDataURL('image/jpeg', COMPRESS_QUALITY));
             };
             img.onerror = function () { URL.revokeObjectURL(u); reject(new Error('Could not render the cutout.')); };
             img.src = u;
