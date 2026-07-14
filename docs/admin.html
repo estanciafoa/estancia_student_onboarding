@@ -2076,6 +2076,45 @@
       });
     }
 
+    // Downscale + re-encode an image to a compact, still-readable JPEG before upload; PDFs
+    // (and SVG/GIF) pass through untouched. Returns { base64, mimeType }. Keeps storage small
+    // without hurting legibility. See COMPRESS_* to tune.
+    var COMPRESS_MAX_DIM = 1400;   // longest edge in px — kept small; agreement text stays readable
+    var COMPRESS_QUALITY = 0.55;   // JPEG quality — aggressive but still legible
+    function compressImageFile(file) {
+      return new Promise(function (resolve) {
+        var type = file.type || '';
+        function passThrough() {
+          var r = new FileReader();
+          r.onload = function () { resolve({ base64: String(r.result).split(',')[1], mimeType: type || 'application/octet-stream' }); };
+          r.onerror = function () { resolve(null); };
+          r.readAsDataURL(file);
+        }
+        if (type.indexOf('image/') !== 0 || type === 'image/svg+xml' || type === 'image/gif') { passThrough(); return; }
+        var url = URL.createObjectURL(file);
+        var img = new Image();
+        img.onload = function () {
+          var w = img.naturalWidth, h = img.naturalHeight;
+          if (!w || !h) { URL.revokeObjectURL(url); passThrough(); return; }
+          var scale = Math.min(1, COMPRESS_MAX_DIM / Math.max(w, h));   // never upscale
+          var cw = Math.max(1, Math.round(w * scale)), ch = Math.max(1, Math.round(h * scale));
+          var canvas = document.createElement('canvas');
+          canvas.width = cw; canvas.height = ch;
+          var ctx = canvas.getContext('2d');
+          ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cw, ch);          // flatten transparency to white
+          ctx.drawImage(img, 0, 0, cw, ch);
+          var b64;
+          try { b64 = canvas.toDataURL('image/jpeg', COMPRESS_QUALITY).split(',')[1]; }
+          catch (e) { URL.revokeObjectURL(url); passThrough(); return; }
+          URL.revokeObjectURL(url);
+          if (file.size && Math.floor(b64.length * 3 / 4) >= file.size) { passThrough(); return; }  // never grow it
+          resolve({ base64: b64, mimeType: 'image/jpeg' });
+        };
+        img.onerror = function () { URL.revokeObjectURL(url); passThrough(); };
+        img.src = url;
+      });
+    }
+
     function onAgreeFile() {
       var flat = document.getElementById('flat').value.trim();
       var input = document.getElementById('agreeFile');
@@ -2083,14 +2122,15 @@
       if (!flat) return setStatus('Load a flat first.', false);
       if (!file) return;
       setStatus('Uploading agreement…', true);
-      var reader = new FileReader();
-      reader.onload = function () {
-        var base64 = String(reader.result).split(',')[1];
-        callServer('webUploadAgreement', { flat: flat, base64: base64, fileName: file.name || 'agreement', mimeType: file.type || 'application/pdf' })
+      compressImageFile(file).then(function (out) {
+        if (!out) return setStatus('Could not read the file.', false);
+        // A compressed image is JPEG now → give it a .jpg name so the server stores it right.
+        var baseName = file.name || 'agreement';
+        var fileName = out.mimeType === 'image/jpeg' ? baseName.replace(/\.[^.\/\\]+$/, '') + '.jpg' : baseName;
+        callServer('webUploadAgreement', { flat: flat, base64: out.base64, fileName: fileName, mimeType: out.mimeType })
           .then(function () { input.value = ''; setStatus('Agreement uploaded.', true); loadAgreement(flat); })
           .catch(function (e) { setStatus(e && e.message ? e.message : 'Upload failed.', false); });
-      };
-      reader.readAsDataURL(file);
+      });
     }
 
     // ---------- lightbox zoom ----------

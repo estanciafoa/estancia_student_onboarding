@@ -474,16 +474,56 @@
       input.value = ''; // allow re-selecting the same file / adding more
     }
 
+    // Aadhaar / college-ID photos come off phone cameras at several MB. Downscale + re-encode
+    // them to a compact JPEG that's still comfortably readable before we hold or upload them —
+    // it keeps drafts small and the submit fast. Non-images (PDFs) pass through untouched.
+    var COMPRESS_MAX_DIM = 1400;   // longest edge in px — kept small; ID text stays readable
+    var COMPRESS_QUALITY = 0.55;   // JPEG quality — aggressive but still legible
+
+    function compressImageFile(file) {
+      return new Promise(function (resolve) {
+        var type = file.type || '';
+        function passThrough() {
+          var r = new FileReader();
+          r.onload = function () { resolve({ base64: String(r.result).split(',')[1], mimeType: type || 'application/octet-stream' }); };
+          r.onerror = function () { resolve(null); };
+          r.readAsDataURL(file);
+        }
+        // Only raster photos benefit; leave PDFs, SVG and animated GIFs alone.
+        if (type.indexOf('image/') !== 0 || type === 'image/svg+xml' || type === 'image/gif') { passThrough(); return; }
+        var url = URL.createObjectURL(file);
+        var img = new Image();
+        img.onload = function () {
+          var w = img.naturalWidth, h = img.naturalHeight;
+          if (!w || !h) { URL.revokeObjectURL(url); passThrough(); return; }
+          var scale = Math.min(1, COMPRESS_MAX_DIM / Math.max(w, h));   // never upscale
+          var cw = Math.max(1, Math.round(w * scale)), ch = Math.max(1, Math.round(h * scale));
+          var canvas = document.createElement('canvas');
+          canvas.width = cw; canvas.height = ch;
+          var ctx = canvas.getContext('2d');
+          ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cw, ch);          // flatten any transparency to white
+          ctx.drawImage(img, 0, 0, cw, ch);
+          var b64;
+          try { b64 = canvas.toDataURL('image/jpeg', COMPRESS_QUALITY).split(',')[1]; }
+          catch (e) { URL.revokeObjectURL(url); passThrough(); return; }
+          URL.revokeObjectURL(url);
+          // Keep whichever is smaller — never grow an already-tiny file.
+          if (file.size && Math.floor(b64.length * 3 / 4) >= file.size) { passThrough(); return; }
+          resolve({ base64: b64, mimeType: 'image/jpeg' });
+        };
+        img.onerror = function () { URL.revokeObjectURL(url); passThrough(); };
+        img.src = url;
+      });
+    }
+
     function addFile(kind, f) {
-      var reader = new FileReader();
-      reader.onload = function () {
-        var base64 = String(reader.result).split(',')[1];
-        var name = f.name || (kind + '-pasted-' + (docs[kind].length + 1));
-        docs[kind].push({ base64: base64, mimeType: f.type || 'application/octet-stream', name: name });
+      var name = f.name || (kind + '-pasted-' + (docs[kind].length + 1));
+      compressImageFile(f).then(function (out) {
+        if (!out) return;
+        docs[kind].push({ base64: out.base64, mimeType: out.mimeType, name: name });
         renderList(kind);
         updateTicks();
-      };
-      reader.readAsDataURL(f);
+      });
     }
 
     function renderList(kind) {
