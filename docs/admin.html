@@ -199,9 +199,12 @@
     .thumb canvas, .thumb img { display: block; width: 100%; height: auto; border-radius: 8px;
                                 -webkit-user-drag: none; user-select: none; pointer-events: none; }
     .thumb .cap { font-size: 11px; color: #5f6f8f; padding: 4px 8px; }
-    .thumb .dl { display: block; width: 100%; border: none; border-top: 1px solid var(--line); background: #eef2fb;
+    .thumb .actions { display: flex; border-top: 1px solid var(--line); }
+    .thumb .actions button { flex: 1; border: none; background: #eef2fb;
                  color: var(--pri); font-weight: 600; padding: 7px; cursor: pointer; font-size: 12px; }
-    .thumb .dl:hover { background: #dce6fb; }
+    .thumb .actions button + button { border-left: 1px solid var(--line); }
+    .thumb .actions button:hover { background: #dce6fb; }
+    .thumb .actions button:disabled { opacity: .6; cursor: default; }
     /* loading placeholders — shimmer skeleton + spinner */
     .skel { background: #e9edf3; }
     .skel::after { content: ''; position: absolute; inset: 0; border-radius: 8px;
@@ -339,8 +342,9 @@
     body.theme-dark .iconbtn.save { color: #fff; }
     body.theme-dark .iconbtn:disabled { background: #1b2733; }
     body.theme-dark .ghostbtn { background: #1b2733; color: var(--accent); }
-    body.theme-dark .thumb .dl { background: #1b2733; color: var(--accent); border-top-color: var(--line); }
-    body.theme-dark .thumb .dl:hover { background: #25394a; }
+    body.theme-dark .thumb .actions { border-top-color: var(--line); }
+    body.theme-dark .thumb .actions button { background: #1b2733; color: var(--accent); }
+    body.theme-dark .thumb .actions button:hover { background: #25394a; }
     body.theme-dark .skel { background: #1f2c39; }
     body.theme-dark .skel::after { background: linear-gradient(90deg, transparent, rgba(255,255,255,.10), transparent); }
     body.theme-dark .ph-load { color: #9fb1c0; }
@@ -987,6 +991,7 @@
       saveStudentDetails: function (p) { return [p.studentId, p.fields]; },
       deleteStudent: function (p) { return [p.studentId]; },
       assignStudentId: function (p) { return [p.studentId, p.assignedId]; },
+      rotateStudentDoc: function (p) { return [p.studentId, p.kind, p.index, p.base64]; },
       publishApprovedStudent: function (p) { return [p]; },
       saveStudentVerification: function (p) { return [p]; },
       webUploadAgreement: function (p) { return [p.flat, p.base64, p.fileName, p.mimeType]; }
@@ -1945,10 +1950,13 @@
         var inner = pdf
           ? '<div class="pdf-slot"><div class="ph-load"><span class="ph-spin"></span><span>Rendering PDF…</span></div></div>'
           : '<img src="data:' + mime + ';base64,' + im.base64 + '">';
+        var actions =
+          (pdf ? '' : '<button type="button" onclick="rotateThumb(this)">Rotate ⟳</button>') +
+          '<button type="button" onclick="dlThumb(this)">Download ⬇</button>';
         return '<div class="thumb" data-kind="' + kind + '" data-i="' + (idx + 1) + '" data-mime="' + mime + '"' +
                  (pdf ? ' data-pdf="1"' : '') + '>' +
                  inner +
-                 '<button class="dl" onclick="dlThumb(this)">Download ⬇</button>' +
+                 '<div class="actions">' + actions + '</div>' +
                '</div>';
       }).join('');
     }
@@ -2139,6 +2147,41 @@
         setTimeout(function () { URL.revokeObjectURL(url); a.remove(); }, 1500);
       }).catch(function () { setStatus('Download failed.', false); });
     }
+    // Rotate an Aadhaar/College image 90° clockwise, re-encode it, and persist to Drive.
+    // Rotating a canvas gives the corrected bytes so the compare view, downloads AND the
+    // Annexure PDF all pick up the new orientation. The old file is replaced in place and
+    // the sheet URL updated by the server.
+    function rotateThumb(btn) {
+      var w = btn.closest('.thumb'); if (!w) return;
+      var s = students[activeTab]; if (!s) return;
+      var img = w.querySelector('img'); if (!img) return;
+      if (!img.naturalWidth || !img.naturalHeight) { setStatus('Image is still loading — try again.', false); return; }
+      var kind = w.getAttribute('data-kind'), i = w.getAttribute('data-i');
+      var im = docItemFor(kind, i);
+
+      var canvas = document.createElement('canvas');
+      canvas.width = img.naturalHeight; canvas.height = img.naturalWidth;   // 90° swaps w/h
+      var ctx = canvas.getContext('2d');
+      ctx.translate(canvas.width, 0);
+      ctx.rotate(Math.PI / 2);                                              // clockwise
+      ctx.drawImage(img, 0, 0);
+      var dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+      var base64 = dataUrl.split(',')[1];
+
+      // Instant visual feedback + keep the in-memory doc list in sync (download / re-zoom).
+      img.src = dataUrl;
+      if (im) { im.base64 = base64; im.mime = 'image/jpeg'; }
+      w.setAttribute('data-mime', 'image/jpeg');
+
+      var buttons = w.querySelectorAll('.actions button');
+      Array.prototype.forEach.call(buttons, function (b) { b.disabled = true; });
+      setStatus('Saving rotation…', true);
+      callServer('rotateStudentDoc', { studentId: s.StudentId, kind: kind, index: +i, base64: base64 })
+        .then(function () { setStatus('Rotation saved.', true); })
+        .catch(function (e) { setStatus(e && e.message ? e.message : 'Could not save the rotation.', false); })
+        .then(function () { Array.prototype.forEach.call(buttons, function (b) { b.disabled = false; }); });
+    }
+
     // Download an Aadhaar/College image from its thumbnail, named <id>_<kind>_<n>.<ext>.
     function dlThumb(btn) {
       var w = btn.closest('.thumb'); if (!w) return;

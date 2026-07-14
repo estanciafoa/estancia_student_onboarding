@@ -130,6 +130,7 @@ function doPost(e) {
       case 'deleteStudent':          result = deleteStudent(body.studentId || (payload && payload.studentId)); break;
       case 'saveFlatDetails':        result = saveFlatDetails(body.flat || payload.flat, payload.fields); break;
       case 'assignStudentId':        result = assignStudentId(payload.studentId, payload.assignedId); break;
+      case 'rotateStudentDoc':       result = rotateStudentDoc(payload.studentId, payload.kind, payload.index, payload.base64); break;
       case 'publishApprovedStudent': result = publishApprovedStudent(payload); break;
       case 'emailOwnerDraft':        result = emailOwnerDraft(body.flat || (payload && payload.flat)); break;
       case 'webUploadAgreement':     result = webUploadAgreement(payload.flat, payload.base64, payload.fileName, payload.mimeType); break;
@@ -712,6 +713,44 @@ function getCompareDocs(studentId) {
     signature: signature,
     agreement: agreement
   };
+}
+
+// Web admin: replace one of a student's Aadhaar / College-ID images with a rotated copy.
+// The page rotates the image on a canvas and sends the new JPEG bytes; we overwrite the
+// stored Drive file (same name, in place) and update that one entry in the comma-joined
+// URL list so the compare view, downloads and the Annexure PDF all use the new orientation.
+// kind: 'aadhar' | 'collegeid'; index is 1-based (matches the thumbnail's data-i).
+function rotateStudentDoc(studentId, kind, index, base64) {
+  studentId = String(studentId || '').trim();
+  if (!studentId) throw new Error('studentId is required.');
+  if (!base64) throw new Error('No image data to save.');
+  const col = String(kind) === 'collegeid' ? 'CollegeIdPhotoUrl' : 'AadharPhotoUrl';
+
+  const found = findStudentRowById_(studentId);
+  if (!found) throw new Error('Student not found: ' + studentId);
+  const header = found.header, row = found.row.slice();
+  const iCol = header.indexOf(col);
+  if (iCol < 0) throw new Error('Missing column: ' + col);
+
+  const urls = String(row[iCol] || '').split(/\s*,\s*/).filter(Boolean);
+  const pos = (+index) - 1;
+  if (pos < 0 || pos >= urls.length) throw new Error('Image not found to rotate.');
+
+  const file = driveFileFromUrl_(urls[pos]);
+  if (!file) throw new Error('Stored image is not accessible.');
+  const name = file.getName();                                  // keep the same filename
+  let folder = null;
+  const parents = file.getParents();
+  if (parents.hasNext()) folder = parents.next();
+  if (!folder) folder = getOrCreateFlatFolder_(String(row[header.indexOf('HouseId')] || '').trim());
+
+  // saveImageInFolder_ trashes the same-named file and writes a fresh one → new URL.
+  urls[pos] = saveImageInFolder_(folder, base64, name);
+  row[iCol] = urls.join(' , ');
+  getSpreadsheet_().getSheetByName(SHEET_STUDENTS)
+    .getRange(found.rowNumber, 1, 1, row.length).setValues([row]);
+
+  return { ok: true, url: urls[pos] };
 }
 
 // Public wrapper so the web admin page (google.script.run) can store an agreement.
