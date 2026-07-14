@@ -180,8 +180,11 @@
           <div class="upload" id="photoBox" onclick="pickPhoto()">Tap to add your photo — camera or gallery</div>
           <input type="file" id="photoFile" accept="image/*" capture="user" onchange="onPhotoFile()">
           <img id="photoPreview" class="thumb" style="display:none" alt="your photo">
-          <button type="button" class="sign-clear" id="photoRemove" style="display:none" onclick="removeSelfPhoto()">Remove photo</button>
-          <div class="hint">A clear front-facing face photo. Optional — the EFOA office can also take it.</div>
+          <div>
+            <button type="button" class="sign-clear" id="photoBg" style="display:none;color:var(--pri)" onclick="toggleSelfPhotoBg()">Remove background</button>
+            <button type="button" class="sign-clear" id="photoRemove" style="display:none" onclick="removeSelfPhoto()">Remove photo</button>
+          </div>
+          <div class="hint">A clear front-facing face photo. Optional — the EFOA office can also take it. “Remove background” gives it a plain white backdrop.</div>
         </div>
       </div>
 
@@ -559,32 +562,94 @@
       var reader = new FileReader();
       reader.onload = function () {
         selfPhoto = { base64: String(reader.result).split(',')[1], mimeType: f.type || 'image/jpeg' };
+        selfPhotoOriginal = null;          // a fresh photo resets any prior background removal
         showSelfPhoto();
         saveDraft();
       };
       reader.readAsDataURL(f);
     }
 
-    // Reflect the current selfPhoto in the UI (preview + box label + remove button).
+    // Reflect the current selfPhoto in the UI (preview + box label + remove/background buttons).
     function showSelfPhoto() {
       var img = document.getElementById('photoPreview');
       var box = document.getElementById('photoBox');
       var rm = document.getElementById('photoRemove');
+      var bg = document.getElementById('photoBg');
       if (selfPhoto && selfPhoto.base64) {
         img.src = 'data:' + (selfPhoto.mimeType || 'image/jpeg') + ';base64,' + selfPhoto.base64;
         img.style.display = 'block';
         rm.style.display = 'inline-block';
+        bg.style.display = 'inline-block';
+        bg.disabled = false;
+        bg.textContent = selfPhotoOriginal ? 'Undo background' : 'Remove background';
         box.classList.add('has');
         box.textContent = 'Photo added — tap to replace';
       } else {
         img.src = ''; img.style.display = 'none';
         rm.style.display = 'none';
+        bg.style.display = 'none';
+        selfPhotoOriginal = null;
         box.classList.remove('has');
         box.textContent = 'Tap to add your photo — camera or gallery';
       }
     }
 
-    function removeSelfPhoto() { selfPhoto = null; showSelfPhoto(); saveDraft(); }
+    function removeSelfPhoto() { selfPhoto = null; selfPhotoOriginal = null; showSelfPhoto(); saveDraft(); }
+
+    // --- On-device background removal (@imgly/background-removal) -------------
+    // Runs fully in the browser, so the photo never leaves the device. First use downloads
+    // a model (~a few MB) from the CDN; it's cached afterwards. Needs an internet connection.
+    var selfPhotoOriginal = null;     // the photo before background removal, for one-tap undo
+    var _bgRemover = null;
+    function loadBgRemover() {
+      if (!_bgRemover) {
+        _bgRemover = import('https://cdn.jsdelivr.net/npm/@imgly/background-removal@1.7.0/dist/index.mjs')
+          .then(function (m) { return m.removeBackground; });
+      }
+      return _bgRemover;
+    }
+    function removeBgToColor(src, bgColor) {
+      return fetch(src).then(function (r) { return r.blob(); })
+        .then(function (blob) { return loadBgRemover().then(function (rm) { return rm(blob, { output: { format: 'image/png' } }); }); })
+        .then(function (cut) {
+          return new Promise(function (resolve, reject) {
+            var u = URL.createObjectURL(cut);
+            var img = new Image();
+            img.onload = function () {
+              var c = document.createElement('canvas');
+              c.width = img.naturalWidth; c.height = img.naturalHeight;
+              var ctx = c.getContext('2d');
+              ctx.fillStyle = bgColor; ctx.fillRect(0, 0, c.width, c.height);
+              ctx.drawImage(img, 0, 0);
+              URL.revokeObjectURL(u);
+              resolve(c.toDataURL('image/jpeg', 0.9));
+            };
+            img.onerror = function () { URL.revokeObjectURL(u); reject(new Error('Could not render the cutout.')); };
+            img.src = u;
+          });
+        });
+    }
+
+    // Toggle: apply a plain white background, or undo back to the original photo.
+    function toggleSelfPhotoBg() {
+      if (!selfPhoto || !selfPhoto.base64) return;
+      var bg = document.getElementById('photoBg');
+      if (selfPhotoOriginal) {                 // currently background-removed → undo
+        selfPhoto = selfPhotoOriginal; selfPhotoOriginal = null;
+        showSelfPhoto(); saveDraft();
+        return;
+      }
+      bg.disabled = true; bg.textContent = 'Removing background…';
+      var src = 'data:' + (selfPhoto.mimeType || 'image/jpeg') + ';base64,' + selfPhoto.base64;
+      removeBgToColor(src, '#ffffff').then(function (dataUrl) {
+        selfPhotoOriginal = selfPhoto;
+        selfPhoto = { base64: dataUrl.split(',')[1], mimeType: 'image/jpeg' };
+        showSelfPhoto(); saveDraft();
+      }).catch(function () {
+        bg.disabled = false; bg.textContent = 'Remove background';
+        fail('Background removal failed — please try again with a good connection.');
+      });
+    }
 
     // --- Tripartite agreement + on-screen signature --------------------------
     function tpBoxes() { return document.querySelectorAll('#agreeList input.tp'); }

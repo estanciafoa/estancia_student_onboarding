@@ -542,6 +542,7 @@
       <div class="pe-hint">Drag the box to position · drag the corner to resize (locked to 35×45 mm passport ratio).</div>
       <div class="pe-controls">
         <label><input type="checkbox" id="peColor" checked onchange="drawEditor()"> Color correction</label>
+        <button class="ghostbtn" id="peBgBtn" onclick="removePhotoBg()">Remove background</button>
         <span class="pe-sp"></span>
         <button class="ghostbtn" onclick="resetCrop()">Reset crop</button>
         <button class="primarybtn" onclick="applyPhotoEdit()">Apply</button>
@@ -1751,11 +1752,71 @@
         c.style.width = dispW + 'px'; c.style.height = dispH + 'px';
         initCrop(dispW, dispH);
         drawEditor();
+        var bgBtn = document.getElementById('peBgBtn');
+        bgBtn.disabled = false; bgBtn.textContent = 'Remove background';
         document.getElementById('photoEditor').style.display = 'flex';
       };
       img.src = pv.src;
     }
     function closePhotoEditor() { document.getElementById('photoEditor').style.display = 'none'; }
+
+    // ---------- background removal (on-device, @imgly/background-removal) ----------
+    // Loaded on first use; the model (~a few MB) is fetched from the CDN once, then cached.
+    // Runs fully in the browser, so the student's photo never leaves the device.
+    var _bgRemover = null;
+    function loadBgRemover() {
+      if (!_bgRemover) {
+        _bgRemover = import('https://cdn.jsdelivr.net/npm/@imgly/background-removal@1.7.0/dist/index.mjs')
+          .then(function (m) { return m.removeBackground; });
+      }
+      return _bgRemover;
+    }
+    // Cut the subject out of `src` (a data/blob URL) and composite it onto solid `bgColor`.
+    // Returns a Promise<JPEG data URL>. Needs internet the first time (model download).
+    function removeBgToColor(src, bgColor) {
+      return fetch(src).then(function (r) { return r.blob(); })
+        .then(function (blob) { return loadBgRemover().then(function (rm) { return rm(blob, { output: { format: 'image/png' } }); }); })
+        .then(function (cut) {
+          return new Promise(function (resolve, reject) {
+            var u = URL.createObjectURL(cut);
+            var img = new Image();
+            img.onload = function () {
+              var c = document.createElement('canvas');
+              c.width = img.naturalWidth; c.height = img.naturalHeight;
+              var ctx = c.getContext('2d');
+              ctx.fillStyle = bgColor; ctx.fillRect(0, 0, c.width, c.height);   // plain background
+              ctx.drawImage(img, 0, 0);
+              URL.revokeObjectURL(u);
+              resolve(c.toDataURL('image/jpeg', 0.92));
+            };
+            img.onerror = function () { URL.revokeObjectURL(u); reject(new Error('Could not render the cutout.')); };
+            img.src = u;
+          });
+        });
+    }
+
+    // Editor: replace the source with a version on a plain white background. Non-destructive —
+    // the crop / colour steps still apply, and closing without Apply keeps the original.
+    function removePhotoBg() {
+      if (!peImg) return;
+      var btn = document.getElementById('peBgBtn');
+      var prev = btn.textContent;
+      btn.disabled = true; btn.textContent = 'Removing background…';
+      removeBgToColor(peImg.src, '#ffffff').then(function (dataUrl) {
+        var img = new Image();
+        img.onload = function () {
+          peImg = img;                                   // same dimensions → crop stays valid
+          var c = document.getElementById('peCanvas');
+          c.width = img.naturalWidth; c.height = img.naturalHeight;
+          drawEditor();
+          btn.disabled = false; btn.textContent = 'Background removed ✓';
+        };
+        img.src = dataUrl;
+      }).catch(function () {
+        btn.disabled = false; btn.textContent = prev;
+        document.getElementById('photoStatus').textContent = 'Background removal failed — check the connection and try again.';
+      });
+    }
 
     // Redraw the source onto the editor canvas, applying the color filter for preview when enabled.
     function drawEditor() {
