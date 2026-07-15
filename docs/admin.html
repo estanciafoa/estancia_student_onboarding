@@ -1134,11 +1134,6 @@
     function genPdf() {
       var flat = document.getElementById('flat').value.trim();
       if (!flat) return setStatus('Load a flat first.', false);
-      if (!allApproved()) {
-        var n = students.filter(isApproved).length;
-        return setStatus('Annexure 2A can be generated only once every applied student is approved (' +
-          n + '/' + students.length + ' approved for this flat).', false);
-      }
       var btn = document.getElementById('genPdfBtn');
       btn.disabled = true; setStatus('Generating Annexure 2A PDF…', true);
       callServer('generateAnnexurePdf', { flat: flat })
@@ -1325,8 +1320,6 @@
       return String(s.Status || '').trim().toLowerCase() === 'approved';    // persisted
     }
     function anyApproved() { return students.some(isApproved); }
-    // The Annexure 2A workflow can be finished only when every applied student is approved.
-    function allApproved() { return students.length > 0 && students.every(isApproved); }
     // Verify & approve the currently-selected student: rename their Drive files to the assigned
     // Student ID, then unlock the flat exports (Annexure PDF, Copy Data, Download Photos).
     function verifyApprove() {
