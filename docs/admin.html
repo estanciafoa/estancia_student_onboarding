@@ -193,6 +193,25 @@
     .pe-controls button { padding: 9px 16px; border-radius: 8px; font-weight: 700; cursor: pointer; font-size: 13px; border: none; }
     .pe-hint { font-size: 12px; color: var(--muted); padding: 0 16px 10px; }
 
+    /* Flats overview list (all applications + approval status) */
+    .ov-stage { flex: 1 1 auto; overflow: auto; background: var(--surface); padding: 0; }
+    .ovtable { width: 100%; border-collapse: collapse; font-size: 14px; }
+    .ovtable th, .ovtable td { text-align: left; padding: 11px 16px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+    .ovtable th { position: sticky; top: 0; background: var(--grey); z-index: 1;
+                  font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 800; }
+    .ovtable td.num { font-variant-numeric: tabular-nums; font-weight: 700; }
+    .ovrow { cursor: pointer; }
+    .ovrow:hover { background: var(--grey); }
+    .ovrow.complete { background: rgba(15,157,138,.12); box-shadow: inset 3px 0 0 var(--ok); }
+    .ovrow.complete:hover { background: rgba(15,157,138,.20); }
+    .ovflat { font-weight: 800; color: var(--pri); }
+    .ovpill { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 700; }
+    .ovpill.pending { background: var(--grey); color: var(--muted); }
+    .ovpill.done { background: rgba(15,157,138,.16); color: var(--ok); }
+    body.theme-dark .ovtable th { background: #17242f; }
+    body.theme-dark .ovrow:hover { background: #1b2733; }
+    body.theme-dark .ovpill.pending { background: #1b2733; }
+
     /* image / thumbnail cards in grey panes */
     .thumb { display: block; width: 100%; background: #fff; border: 1px solid var(--line); border-radius: 8px;
              margin-bottom: 10px; cursor: inherit; }
@@ -373,6 +392,7 @@
     <h1>Verify &amp; Compare</h1>
     <input id="flat" inputmode="numeric" placeholder="Flat #">
     <button onclick="loadFlat()">Load</button>
+    <button onclick="openOverview()" title="All flats — applications &amp; approval">All flats</button>
     <span class="muted" id="who"></span>
     <span class="spacer"></span>
   </div>
@@ -527,6 +547,25 @@
   </div>
 
   <!-- passport crop + color-correction editor -->
+  <!-- Flats overview — every flat with an application, its approval progress, and whether
+       the Annexure 2A workflow can be completed (all applied students approved). -->
+  <div id="flatsOverview" class="peditor">
+    <div class="pe-panel" style="max-width:600px">
+      <div class="pe-head">
+        <span>Flats — applications &amp; approval</span>
+        <button onclick="closeOverview()" title="Close">&times;</button>
+      </div>
+      <div class="ov-stage" id="ovStage">
+        <div id="ovBody"><div class="empty" style="padding:20px">Loading…</div></div>
+      </div>
+      <div class="pe-controls">
+        <span class="pe-hint" id="ovHint" style="padding:0"></span>
+        <span class="pe-sp"></span>
+        <button class="ghostbtn" onclick="loadOverview()">Refresh</button>
+      </div>
+    </div>
+  </div>
+
   <div id="photoEditor" class="peditor">
     <div class="pe-panel">
       <div class="pe-head">
@@ -986,6 +1025,7 @@
       getFlatForReview: function (p) { return [p.flat]; },
       getFlatAgreementDoc: function (p) { return [p.flat]; },
       getCompareDocs: function (p) { return [p.studentId]; },
+      getFlatsOverview: function () { return []; },
       generateAnnexurePdf: function (p) { return [p.flat]; },
       emailOwnerDraft: function (p) { return [p.flat]; },
       saveFlatDetails: function (p) { return [p.flat, p.fields]; },
@@ -1094,6 +1134,11 @@
     function genPdf() {
       var flat = document.getElementById('flat').value.trim();
       if (!flat) return setStatus('Load a flat first.', false);
+      if (!allApproved()) {
+        var n = students.filter(isApproved).length;
+        return setStatus('Annexure 2A can be generated only once every applied student is approved (' +
+          n + '/' + students.length + ' approved for this flat).', false);
+      }
       var btn = document.getElementById('genPdfBtn');
       btn.disabled = true; setStatus('Generating Annexure 2A PDF…', true);
       callServer('generateAnnexurePdf', { flat: flat })
@@ -1280,6 +1325,8 @@
       return String(s.Status || '').trim().toLowerCase() === 'approved';    // persisted
     }
     function anyApproved() { return students.some(isApproved); }
+    // The Annexure 2A workflow can be finished only when every applied student is approved.
+    function allApproved() { return students.length > 0 && students.every(isApproved); }
     // Verify & approve the currently-selected student: rename their Drive files to the assigned
     // Student ID, then unlock the flat exports (Annexure PDF, Copy Data, Download Photos).
     function verifyApprove() {
@@ -1380,6 +1427,51 @@
       } catch (err) {
         setStatus(err && err.message ? err.message : 'Could not call server.', false);
       }
+    }
+
+    // ---------- flats overview (all applications + approval status) ----------
+    function openOverview() {
+      if (!serverReady()) { setStatus('No server connection.', false); openSettings(); return; }
+      document.getElementById('flatsOverview').style.display = 'flex';
+      loadOverview();
+    }
+    function closeOverview() { document.getElementById('flatsOverview').style.display = 'none'; }
+
+    function loadOverview() {
+      var body = document.getElementById('ovBody');
+      document.getElementById('ovHint').textContent = '';
+      body.innerHTML = '<div class="empty" style="padding:20px"><span class="ph-spin" style="display:inline-block;width:15px;height:15px;border-width:2px;vertical-align:middle"></span> Loading flats…</div>';
+      callServer('getFlatsOverview', {})
+        .then(function (r) { renderOverview((r && r.flats) || []); })
+        .catch(function (e) { body.innerHTML = '<div class="err" style="padding:16px">' + esc(e && e.message ? e.message : 'Could not load the overview.') + '</div>'; });
+    }
+
+    function renderOverview(flats) {
+      var body = document.getElementById('ovBody');
+      if (!flats.length) { body.innerHTML = '<div class="empty" style="padding:20px">No applications yet.</div>'; document.getElementById('ovHint').textContent = ''; return; }
+      var done = flats.filter(function (f) { return f.complete; }).length;
+      document.getElementById('ovHint').textContent = flats.length + ' flat(s) · ' + done + ' ready for Annexure 2A';
+      var rows = flats.map(function (f) {
+        var status = f.complete
+          ? '<span class="ovpill done">✓ Complete</span>'
+          : '<span class="ovpill pending">Pending</span>';
+        return '<tr class="ovrow' + (f.complete ? ' complete' : '') + '" onclick="pickOverviewFlat(\'' + esc(String(f.flat)).replace(/'/g, "\\'") + '\')">' +
+                 '<td class="ovflat">' + esc(f.flat) + '</td>' +
+                 '<td class="num">' + f.approved + ' / ' + f.applied + '</td>' +
+                 '<td>' + status + '</td>' +
+               '</tr>';
+      }).join('');
+      body.innerHTML =
+        '<table class="ovtable"><thead><tr>' +
+          '<th>Flat</th><th>Approved / Applied</th><th>Status</th>' +
+        '</tr></thead><tbody>' + rows + '</tbody></table>';
+    }
+
+    // Row click → load that flat into the main view.
+    function pickOverviewFlat(flat) {
+      closeOverview();
+      document.getElementById('flat').value = flat;
+      loadFlat();
     }
 
     // "X/Y approved" badge next to the Students dropdown.

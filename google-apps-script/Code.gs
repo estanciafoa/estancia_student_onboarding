@@ -125,6 +125,7 @@ function doPost(e) {
       // Admin web-page actions (also callable via google.script.run when embedded).
       case 'getLogo':                result = getLogo(); break;
       case 'getCompareDocs':         result = getCompareDocs(payload.studentId); break;
+      case 'getFlatsOverview':       result = getFlatsOverview(); break;
       case 'getFlatAgreementDoc':    result = getFlatAgreementDoc(body.flat || payload.flat); break;
       case 'saveStudentDetails':     result = saveStudentDetails(payload.studentId, payload.fields); break;
       case 'deleteStudent':          result = deleteStudent(body.studentId || (payload && payload.studentId)); break;
@@ -564,6 +565,44 @@ function getFlatForReview(flat) {
     flat: getFlatRow_(flat),
     agreementUrl: getFlatAgreementUrl_(flat)
   };
+}
+
+// Web admin overview: one row per flat that has at least one active application, with how
+// many of its students are approved. `complete` (every applied student approved) means the
+// flat's Annexure 2A workflow can be finished. Public so google.script.run can call it.
+function getFlatsOverview() {
+  const sh = studentsSheetAndHeader_();
+  const header = sh.header;
+  const values = sh.sheet.getDataRange().getValues();
+  values.shift();
+
+  const iHouse = header.indexOf('HouseId');
+  const iStatus = header.indexOf('Status');
+  const ACTIVEISH = { Submitted: 1, Verified: 1, Active: 1, InForm: 1, Approved: 1 };
+
+  const byFlat = {};                                  // flat -> { applied, approved }
+  values.forEach(function (r) {
+    const flat = String(r[iHouse] || '').trim();
+    if (!flat) return;
+    const status = String(r[iStatus] || '').trim();
+    if (!ACTIVEISH[status]) return;
+    const rec = byFlat[flat] || (byFlat[flat] = { applied: 0, approved: 0 });
+    rec.applied++;
+    if (status === 'Approved') rec.approved++;
+  });
+
+  const flats = Object.keys(byFlat).map(function (flat) {
+    const rec = byFlat[flat];
+    return { flat: flat, applied: rec.applied, approved: rec.approved,
+             complete: rec.applied > 0 && rec.approved === rec.applied };
+  });
+  // Numeric flat numbers sort naturally; anything non-numeric falls back to lexical order.
+  flats.sort(function (a, b) {
+    const na = parseInt(a.flat, 10), nb = parseInt(b.flat, 10);
+    if (!isNaN(na) && !isNaN(nb) && na !== nb) return na - nb;
+    return String(a.flat).localeCompare(String(b.flat));
+  });
+  return { flats: flats, max: MAX_STUDENTS_PER_HOUSE };
 }
 
 // Coerce a sheet cell to a value google.script.run can serialize. A Date nested in a
