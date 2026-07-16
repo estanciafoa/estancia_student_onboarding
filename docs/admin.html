@@ -1253,7 +1253,7 @@
       var s = students[activeTab];
       if (!s) return setStatus('Pick a student first.', false);
       if (!confirm('Delete "' + (s.Name || 'this student') + '" from flat ' +
-          (s.HouseId || '') + '? This removes the row from the sheet and cannot be undone.')) return;
+          (s.HouseId || '') + '? This removes the row from the sheet and their face photo from the faces folder, and cannot be undone.')) return;
       var btn = document.getElementById('deleteRowBtn'); btn.disabled = true;
       setStatus('Deleting ' + (s.Name || 'record') + '…', true);
       callServer('deleteStudent', { studentId: s.StudentId })

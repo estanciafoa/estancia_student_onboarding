@@ -852,8 +852,22 @@ function deleteStudent(studentId) {
   const found = findStudentRowById_(studentId);
   if (!found) throw new Error('Student not found: ' + studentId);
 
+  // Remove the approved face photo (named <AssignedId>.jpg, or legacy .jpeg) from the shared
+  // faces folder. Only approved students have one there; if none matches, nothing is trashed.
+  const iAssigned = found.header.indexOf('AssignedId');
+  const assigned = iAssigned >= 0 ? String(found.row[iAssigned] || '').trim() : '';
+  const base = assigned || studentId;
+  let photoDeleted = 0;
+  try {
+    const folder = DriveApp.getFolderById(APPROVED_PHOTO_FOLDER_ID);
+    [base + '.jpg', base + '.jpeg'].forEach(function (n) {
+      const files = folder.getFilesByName(n);
+      while (files.hasNext()) { files.next().setTrashed(true); photoDeleted++; }
+    });
+  } catch (e) { /* faces folder unavailable — still delete the row below */ }
+
   getSpreadsheet_().getSheetByName(SHEET_STUDENTS).deleteRow(found.rowNumber);
-  return { ok: true, studentId: studentId };
+  return { ok: true, studentId: studentId, photoDeleted: photoDeleted };
 }
 
 // Web admin: save the manually-editable flat fields (owner name, rent-agreement date,
