@@ -1357,7 +1357,7 @@
           vSet(e && e.message ? e.message : 'Failed to verify.', false);
         });
     }
-    // Download every student's saved photo for the flat (named <id>.jpeg).
+    // Download every student's saved photo for the flat (named <id>.jpg).
     function downloadAllPhotos() {
       if (!students.length) return bbSet('Load a flat first.', false);
       bbSet('Preparing photos…', true);
@@ -1370,7 +1370,7 @@
           return get.then(function (d) {
             var ph = d && (d.photo || d.selfPhoto);   // admin capture, else resident's upload
             if (ph && ph.base64) {
-              downloadDataUrl('data:' + (ph.mime || 'image/jpeg') + ';base64,' + ph.base64, getIdBase(s) + '.jpeg');
+              downloadDataUrl('data:' + (ph.mime || 'image/jpeg') + ';base64,' + ph.base64, getIdBase(s) + '.jpg');
               count++;
             }
           });
@@ -1595,7 +1595,7 @@
         (!s._docs && s._docsLoading)
           ? '<span class="ph-spin" style="display:inline-block;width:15px;height:15px;border-width:2px;vertical-align:middle"></span> Loading photo…'
           : adminPhoto
-            ? 'Admin photo on file — Download saves it as <b>' + esc(getIdBase(s)) + '.jpeg</b>. Take or upload a new one to replace it.'
+            ? 'Admin photo on file — Download saves it as <b>' + esc(getIdBase(s)) + '.jpg</b>. Take or upload a new one to replace it.'
             : selfPhoto
               ? 'Student-uploaded photo. If it looks good, just assign the Student ID. To replace it, take/upload a new one; press ✕ to return to this photo.'
               : 'No photo yet — take one with the camera or upload an image.';
@@ -2321,7 +2321,7 @@
       m = String(m || '').toLowerCase();
       if (m.indexOf('png') >= 0) return 'png';
       if (m.indexOf('pdf') >= 0) return 'pdf';
-      return 'jpeg';
+      return 'jpg';
     }
     // Force a download with a chosen filename (via a blob URL — works in the sandboxed iframe).
     function downloadDataUrl(dataUrl, filename) {
@@ -2379,12 +2379,12 @@
       if (!src) return;
       downloadDataUrl(src, getIdBase(s) + '_' + kind + '_' + i + '.' + extFromMime(mime));
     }
-    // Download the student photo as <id>.jpeg.
+    // Download the student photo as <id>.jpg.
     function downloadPhoto() {
       var s = students[activeTab] || {};
       var pv = document.getElementById('photoPreview');
       if (!pv.src) return;
-      downloadDataUrl(pv.src, getIdBase(s) + '.jpeg');
+      downloadDataUrl(pv.src, getIdBase(s) + '.jpg');
     }
   </script>
 </body>

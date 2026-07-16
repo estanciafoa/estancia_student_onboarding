@@ -8,7 +8,7 @@ const GEMINI_MODEL = 'gemini-2.0-flash';
 // Target spreadsheet (opened by id so the script need not be container-bound).
 const SPREADSHEET_ID = '1ViLI-JdrVVOAIGGhABH-vzm_6bfquL8FZHXvpGbnZ40';
 // On approval, each student's export row is appended here (Update column = "U") and their
-// face photo is copied to the Drive folder below (named <AssignedId>.jpeg).
+// face photo is copied to the Drive folder below (named <AssignedId>.jpg).
 const APPROVED_SHEET_ID = '1EDvYjDQVIpwib5PmQ5sbSchJI_B5HNHWNomXRLOxtk4';
 const APPROVED_PHOTO_FOLDER_ID = '133agflV9e_jlgDZznQE1TCgG1g5pJaVY';
 // Columns of the approved-students export (same shape as the admin "Copy Data" export).
@@ -1367,7 +1367,7 @@ function assignStudentId(studentId, assignedId) {
 
 // Called right after a student is approved. Appends their export row (Update = "U") to the
 // approved-students sheet and copies their face photo to the shared Drive folder as
-// <AssignedId>.jpeg. Both steps de-duplicate, so re-approving the same student is a no-op.
+// <AssignedId>.jpg. Both steps de-duplicate, so re-approving the same student is a no-op.
 // `payload.row` is the 8 values (in APPROVED_COLS order) already formatted by the admin page.
 function publishApprovedStudent(payload) {
   payload = payload || {};
@@ -1407,7 +1407,7 @@ function publishApprovedStudent(payload) {
     appended = true;
   }
 
-  // ---- copy the face photo to the shared folder as <AssignedId>.jpeg ----
+  // ---- copy the face photo to the shared folder as <AssignedId>.jpg ----
   let photoCopied = false;
   const found = findStudentRowById_(studentId);
   if (found) {
@@ -1417,9 +1417,13 @@ function publishApprovedStudent(payload) {
     const blob = photoUrl ? driveBlobFromUrl_(photoUrl) : null;
     if (blob) {
       const folder = DriveApp.getFolderById(APPROVED_PHOTO_FOLDER_ID);
-      const name = (assignedId || studentId) + '.jpeg';
-      const dupes = folder.getFilesByName(name);           // replace an older copy if present
-      while (dupes.hasNext()) dupes.next().setTrashed(true);
+      const base = (assignedId || studentId);
+      const name = base + '.jpg';
+      // Replace an older copy, including any legacy .jpeg from before the extension change.
+      [name, base + '.jpeg'].forEach(function (n) {
+        const dupes = folder.getFilesByName(n);
+        while (dupes.hasNext()) dupes.next().setTrashed(true);
+      });
       folder.createFile(blob.setName(name));
       photoCopied = true;
     }
