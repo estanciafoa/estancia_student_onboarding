@@ -145,8 +145,8 @@
         <div class="card">
           <h2>Parent / Guardian</h2>
           <div class="row">
-            <div><label>Name</label><input id="parentName"></div>
-            <div><label>Mobile</label><input id="parentMobile" inputmode="numeric"></div>
+            <div><label class="req">Name</label><input id="parentName"></div>
+            <div><label class="req">Mobile</label><input id="parentMobile" inputmode="numeric"></div>
           </div>
         </div>
         <div class="card">
@@ -176,7 +176,7 @@
           <div class="filelist" id="collegeList"></div>
           <div class="hint">Add front &amp; back as two photos, or one combined PDF — from your camera, gallery, or files. You can also copy an image and paste it (tap a box first, then paste).</div>
 
-          <label style="margin-top:14px">Your photo (optional)</label>
+          <label class="req" style="margin-top:14px">Your photo</label>
           <div class="upload" id="photoBox" onclick="pickPhoto()">Tap to add your photo — camera or gallery</div>
           <input type="file" id="photoFile" accept="image/*" capture="user" onchange="onPhotoFile()">
           <img id="photoPreview" class="thumb" style="display:none" alt="your photo">
@@ -184,7 +184,7 @@
             <button type="button" class="sign-clear" id="photoBg" style="display:none;color:var(--pri)" onclick="toggleSelfPhotoBg()">Remove background</button>
             <button type="button" class="sign-clear" id="photoRemove" style="display:none" onclick="removeSelfPhoto()">Remove photo</button>
           </div>
-          <div class="hint">A clear front-facing face photo. Optional — the EFOA office can also take it. “Remove background” gives it a plain white backdrop.</div>
+          <div class="hint">A clear front-facing face photo. “Remove background” gives it a plain white backdrop.</div>
         </div>
       </div>
 
@@ -254,7 +254,7 @@
     <div class="done" id="done" style="display:none">
       <div class="big">✅</div>
       <h2 style="text-transform:none;color:#202124">Thank you!</h2>
-      <p class="sub">Your details, agreement and signature have been submitted. If you didn't add a photo, the EFOA office will take one. If your signature or photo needs correcting, just reopen this form and submit again.</p>
+      <p class="sub">Your details, agreement and signature have been submitted. If your signature or photo needs correcting, just reopen this form and submit again.</p>
     </div>
   </div>
 
@@ -426,11 +426,14 @@
         if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(val('email'))) return 'A valid email is required.';
         if (val('aadharNumber').replace(/\D/g, '').length !== 12) return 'A valid 12-digit Aadhaar number is required.';
       } else if (i === 2) {
+        if (!val('parentName')) return 'Parent / Guardian name is required.';
+        if (!val('parentMobile')) return 'Parent / Guardian mobile number is required.';
         if (!val('collegeStudentId')) return 'College / Company ID is required.';
         if (!val('collegeName')) return 'College / Company name is required.';
       } else if (i === 3) {
         if (!docs.aadhar.length) return 'Please add your Aadhaar (photo(s) or PDF).';
         if (!docs.college.length) return 'Please add your College ID (photo(s) or PDF).';
+        if (!selfPhoto || !selfPhoto.base64) return 'Please add your photo.';
       } else if (i === 4) {
         if (!allAgreed()) return 'Please tick each point of the agreement.';
         if (!agreed) return 'Please tap "I Agree" to accept the tripartite agreement.';
