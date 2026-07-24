@@ -472,6 +472,7 @@
               <label id="uploadBtn" class="iconbtn" for="photoFile" title="Upload image">⬆</label>
               <button id="editPhotoBtn" class="iconbtn" onclick="openPhotoEditor()" title="Crop / colour" disabled>✂</button>
               <button id="dlPhotoBtn" class="iconbtn" onclick="downloadPhoto()" title="Download" disabled>⬇</button>
+              <button id="idCardBtn" class="iconbtn" onclick="downloadIdCard()" title="Download ID card (front)" disabled>🪪</button>
               <button id="savePhotoBtn" class="iconbtn save" onclick="savePhoto()" title="Save photo" disabled>✓</button>
               <input type="file" id="photoFile" accept="image/*" onchange="onPhotoFile(this)">
               <input type="file" id="photoCapture" accept="image/*" capture="user" onchange="onPhotoFile(this)">
@@ -1564,6 +1565,7 @@
       document.getElementById('uploadBtn').style.display = live ? 'none' : '';
       document.getElementById('editPhotoBtn').style.display = live ? 'none' : '';
       document.getElementById('dlPhotoBtn').style.display = live ? 'none' : '';
+      document.getElementById('idCardBtn').style.display = live ? 'none' : '';
       document.getElementById('savePhotoBtn').style.display = live ? 'none' : '';
     }
     function cancelCam() { renderPhoto(); }   // stop the live feed, revert to the on-file photo / empty state
@@ -1590,6 +1592,11 @@
         pv.src = ''; setPhotoState('empty');
       }
       document.getElementById('dlPhotoBtn').disabled = !base;
+      // The ID card needs a face photo AND an assigned Student ID (for the barcode/record).
+      document.getElementById('idCardBtn').disabled = !(base && s.AssignedId);
+      document.getElementById('idCardBtn').title = s.AssignedId
+        ? 'Download ID card (front)'
+        : 'Assign a Student ID first to make the ID card';
       document.getElementById('editPhotoBtn').disabled = !base;
       document.getElementById('photoExisting').innerHTML =
         (!s._docs && s._docsLoading)
@@ -2385,6 +2392,163 @@
       var pv = document.getElementById('photoPreview');
       if (!pv.src) return;
       downloadDataUrl(pv.src, getIdBase(s) + '.jpg');
+    }
+
+    // ---------- ID card (front) ----------
+    // The uploaded artwork (assets/idcard-front.png, 600x1050 portrait) carries all static
+    // design + the labels NAME / FLAT / VALID TILL and a <<BARCODE>> strip. We overlay the
+    // student's photo + values and draw a real Code128 barcode of the assigned Student ID,
+    // then export the composited canvas as <id>-front.png. Coordinates were measured from
+    // the artwork's pixels; tweak here if the design changes.
+    var ID_CARD_FRONT = {
+      src: 'assets/idcard-front.png',
+      W: 600, H: 1050,
+      photo: { x: 166, y: 232, w: 268, h: 336, r: 16 },   // inside the white photo box
+      font: 'Arial, Helvetica, sans-serif',
+      color: '#151515',
+      fields: {
+        // value drawn to the right of each baked label, sharing its baseline
+        Name:        { x: 232, baseline: 668, size: 40, maxWidth: 328 },
+        HouseId:     { x: 226, baseline: 745, size: 40, maxWidth: 330 },
+        IdValidUpto: { x: 312, baseline: 821, size: 38, maxWidth: 245 }
+      },
+      barcode: { x: 60, y: 908, w: 480, h: 84 }            // covers the <<BARCODE>> placeholder (centred)
+    };
+
+    // Rounded-rect path (older Safari lacks ctx.roundRect).
+    function idRoundRect(ctx, x, y, w, h, r) {
+      r = Math.min(r, w / 2, h / 2);
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.arcTo(x + w, y, x + w, y + h, r);
+      ctx.arcTo(x + w, y + h, x, y + h, r);
+      ctx.arcTo(x, y + h, x, y, r);
+      ctx.arcTo(x, y, x + w, y, r);
+      ctx.closePath();
+    }
+
+    // Draw an image "cover"-style (fill the box, centre-crop) clipped to a rounded rect.
+    function idDrawCover(ctx, img, b) {
+      if (!img || !img.naturalWidth) return;
+      ctx.save();
+      idRoundRect(ctx, b.x, b.y, b.w, b.h, b.r || 0);
+      ctx.clip();
+      var scale = Math.max(b.w / img.naturalWidth, b.h / img.naturalHeight);
+      var dw = img.naturalWidth * scale, dh = img.naturalHeight * scale;
+      ctx.drawImage(img, b.x + (b.w - dw) / 2, b.y + (b.h - dh) / 2, dw, dh);
+      ctx.restore();
+    }
+
+    // Shrink the font until the text fits maxWidth (never below 22px), then draw left-aligned
+    // on the given alphabetic baseline.
+    function idDrawField(ctx, cfg, f, text) {
+      text = String(text == null ? '' : text).trim();
+      if (!text) return;
+      var size = f.size;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'alphabetic';
+      ctx.fillStyle = cfg.color;
+      do {
+        ctx.font = '700 ' + size + 'px ' + cfg.font;
+        if (ctx.measureText(text).width <= f.maxWidth) break;
+        size -= 2;
+      } while (size > 22);
+      ctx.fillText(text, f.x, f.baseline);
+    }
+
+    // --- Code128 (subset B) barcode, drawn straight onto the canvas ---
+    var CODE128_PATTERNS = ('212222 222122 222221 121223 121322 131222 122213 122312 132212 221213 221312 ' +
+      '231212 112232 122132 122231 113222 123122 123221 223211 221132 221231 213212 223112 312131 311222 ' +
+      '321122 321221 312212 322112 322211 212123 212321 232121 111323 131123 131321 112313 132113 132311 ' +
+      '211313 231113 231311 112133 112331 132131 113123 113321 133121 313121 211331 231131 213113 213311 ' +
+      '213131 311123 311321 331121 312113 312311 332111 314111 221411 431111 111224 111422 121124 121421 ' +
+      '141122 141221 112214 112412 122114 122411 142112 142211 241211 221114 413111 241112 134111 111242 ' +
+      '121142 121241 114212 124112 124211 411212 421112 421211 212141 214121 412121 111143 111341 131141 ' +
+      '114113 114311 411113 411311 113141 114131 311141 411131 211412 211214 211232 2331112').split(' ');
+
+    // Returns the list of Code128-B symbol values (incl. Start B, checksum, Stop) for a string.
+    function code128bValues(data) {
+      var codes = [104], sum = 104;                 // Start B
+      for (var i = 0; i < data.length; i++) {
+        var v = data.charCodeAt(i) - 32;            // subset B maps ASCII 32..126 -> 0..94
+        if (v < 0 || v > 94) v = 31;                // unencodable -> '?'
+        codes.push(v); sum += v * (i + 1);
+      }
+      codes.push(sum % 103);                        // checksum
+      codes.push(106);                              // Stop
+      return codes;
+    }
+
+    // Draw a scannable Code128 barcode of `data` inside region b, on a white panel, with the
+    // value printed underneath. Falls back to plain text if there is nothing to encode.
+    function idDrawBarcode(ctx, data, b) {
+      data = String(data == null ? '' : data).trim();
+      // White rounded panel for scan contrast (also hides the baked <<BARCODE>> text).
+      ctx.save();
+      idRoundRect(ctx, b.x, b.y, b.w, b.h, 10);
+      ctx.fillStyle = '#ffffff';
+      ctx.fill();
+      ctx.restore();
+      if (!data) { return; }
+
+      var codes = code128bValues(data);
+      var QUIET = 10;                               // quiet-zone modules each side
+      var modules = QUIET * 2;
+      var patterns = codes.map(function (c) {
+        var p = CODE128_PATTERNS[c];
+        for (var k = 0; k < p.length; k++) modules += +p[k];
+        return p;
+      });
+      var padX = 14, padTop = 12, textH = 22;
+      var barsW = b.w - padX * 2;
+      var barsH = b.h - padTop - textH;
+      var barY = b.y + padTop;
+      // Integer module width keeps every bar edge on a pixel boundary (no rounding drift), so
+      // scanners read it reliably; the bars are then centred in the available width.
+      var mw = Math.max(1, Math.floor(barsW / modules));
+      var startX = b.x + padX + (barsW - modules * mw) / 2 + QUIET * mw;
+      ctx.fillStyle = '#000000';
+      var modPos = 0;
+      patterns.forEach(function (p) {
+        for (var j = 0; j < p.length; j++) {
+          var wm = +p[j];
+          if (j % 2 === 0) ctx.fillRect(startX + modPos * mw, barY, wm * mw, barsH);  // even = bar
+          modPos += wm;
+        }
+      });
+      // Human-readable value under the bars.
+      ctx.fillStyle = '#000000';
+      ctx.font = '600 17px ' + ID_CARD_FRONT.font;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'alphabetic';
+      ctx.fillText(data, b.x + b.w / 2, b.y + b.h - 6);
+      ctx.textAlign = 'left';
+    }
+
+    // Compose the front ID card for the active student and download it as <id>-front.png.
+    function downloadIdCard() {
+      var s = students[activeTab] || {};
+      if (!s.AssignedId) { setStatus('Assign a Student ID first, then make the ID card.', false); return; }
+      var cfg = ID_CARD_FRONT;
+      var bg = new Image();
+      bg.onload = function () {
+        var c = document.createElement('canvas');
+        c.width = cfg.W; c.height = cfg.H;
+        var ctx = c.getContext('2d');
+        ctx.drawImage(bg, 0, 0, cfg.W, cfg.H);
+        // Face photo (already loaded in the preview <img> as a data URL).
+        idDrawCover(ctx, document.getElementById('photoPreview'), cfg.photo);
+        // Text values next to their baked labels.
+        idDrawField(ctx, cfg, cfg.fields.Name, s.Name);
+        idDrawField(ctx, cfg, cfg.fields.HouseId, s.HouseId);
+        idDrawField(ctx, cfg, cfg.fields.IdValidUpto, s.IdValidUpto);
+        // Barcode of the assigned Student ID.
+        idDrawBarcode(ctx, s.AssignedId, cfg.barcode);
+        downloadDataUrl(c.toDataURL('image/png'), getIdBase(s) + '-front.png');
+        setStatus('ID card (front) downloaded.', true);
+      };
+      bg.onerror = function () { setStatus('Could not load the ID card design (assets/idcard-front.png).', false); };
+      bg.src = cfg.src;
     }
   </script>
 </body>
