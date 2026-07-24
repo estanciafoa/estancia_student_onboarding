@@ -2403,16 +2403,17 @@
     var ID_CARD_FRONT = {
       src: 'assets/idcard-front.png',
       W: 600, H: 1050,
-      photo: { x: 166, y: 232, w: 268, h: 336, r: 16 },   // inside the white photo box
+      photo: { x: 163, y: 229, w: 273, h: 342, r: 16 },   // inside the white photo box
       font: 'Arial, Helvetica, sans-serif',
       color: '#151515',
       fields: {
-        // value drawn to the right of each baked label, sharing its baseline
-        Name:      { x: 232, baseline: 668, size: 40, maxWidth: 328 },
-        HouseId:   { x: 226, baseline: 745, size: 40, maxWidth: 330 },
-        ValidTill: { x: 312, baseline: 821, size: 38, maxWidth: 245 }
+        // value drawn to the right of each baked label's colon, sharing its baseline
+        Name:      { x: 290, baseline: 686, size: 30, maxWidth: 275 },
+        HouseId:   { x: 290, baseline: 736, size: 30, maxWidth: 275 },
+        StudentId: { x: 290, baseline: 785, size: 30, maxWidth: 275 },
+        ValidTill: { x: 290, baseline: 834, size: 30, maxWidth: 275 }
       },
-      barcode: { x: 60, y: 908, w: 480, h: 84 }            // covers the <<BARCODE>> placeholder (centred)
+      barcode: { x: 36, y: 892, w: 527, h: 104 }            // the big white panel at the bottom
     };
 
     // Rounded-rect path (older Safari lacks ctx.roundRect).
@@ -2546,8 +2547,9 @@
         var validTill = validDate ? (MONTHS[validDate.getMonth()].slice(0, 3) + ' ' + validDate.getFullYear()) : validRaw;
         idDrawField(ctx, cfg, cfg.fields.Name, s.Name);
         idDrawField(ctx, cfg, cfg.fields.HouseId, s.HouseId);
+        idDrawField(ctx, cfg, cfg.fields.StudentId, s.AssignedId);
         idDrawField(ctx, cfg, cfg.fields.ValidTill, validTill);
-        // Barcode of the assigned Student ID.
+        // Barcode of the assigned Student ID, filling the big white panel.
         idDrawBarcode(ctx, s.AssignedId, cfg.barcode);
         downloadDataUrl(c.toDataURL('image/png'), getIdBase(s) + '-front.png');
         setStatus('ID card (front) downloaded.', true);
