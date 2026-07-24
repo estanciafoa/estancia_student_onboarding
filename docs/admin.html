@@ -2408,9 +2408,9 @@
       color: '#151515',
       fields: {
         // value drawn to the right of each baked label, sharing its baseline
-        Name:        { x: 232, baseline: 668, size: 40, maxWidth: 328 },
-        HouseId:     { x: 226, baseline: 745, size: 40, maxWidth: 330 },
-        IdValidUpto: { x: 312, baseline: 821, size: 38, maxWidth: 245 }
+        Name:      { x: 232, baseline: 668, size: 40, maxWidth: 328 },
+        HouseId:   { x: 226, baseline: 745, size: 40, maxWidth: 330 },
+        ValidTill: { x: 312, baseline: 821, size: 38, maxWidth: 245 }
       },
       barcode: { x: 60, y: 908, w: 480, h: 84 }            // covers the <<BARCODE>> placeholder (centred)
     };
@@ -2538,10 +2538,12 @@
         ctx.drawImage(bg, 0, 0, cfg.W, cfg.H);
         // Face photo (already loaded in the preview <img> as a data URL).
         idDrawCover(ctx, document.getElementById('photoPreview'), cfg.photo);
-        // Text values next to their baked labels.
+        // Text values next to their baked labels. VALID TILL is the EFOA validity =
+        // the flat's agreement "date to" (the #fTenancy box, which also reflects admin edits).
+        var validTill = (document.getElementById('fTenancy').value || '').trim();
         idDrawField(ctx, cfg, cfg.fields.Name, s.Name);
         idDrawField(ctx, cfg, cfg.fields.HouseId, s.HouseId);
-        idDrawField(ctx, cfg, cfg.fields.IdValidUpto, s.IdValidUpto);
+        idDrawField(ctx, cfg, cfg.fields.ValidTill, validTill);
         // Barcode of the assigned Student ID.
         idDrawBarcode(ctx, s.AssignedId, cfg.barcode);
         downloadDataUrl(c.toDataURL('image/png'), getIdBase(s) + '-front.png');
