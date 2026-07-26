@@ -469,6 +469,7 @@
             <div class="photo-tools">
               <button id="captureBtn" class="iconbtn primary" onclick="capturePhoto()" title="Capture photo" style="display:none">📸</button>
               <button id="cancelCamBtn" class="iconbtn" onclick="cancelCam()" title="Cancel" style="display:none">✕</button>
+              <button id="camBtn" class="iconbtn" onclick="startCam()" title="Take / retake with camera">📷</button>
               <label id="uploadBtn" class="iconbtn" for="photoFile" title="Upload image">⬆</label>
               <button id="editPhotoBtn" class="iconbtn" onclick="openPhotoEditor()" title="Crop / colour" disabled>✂</button>
               <button id="dlPhotoBtn" class="iconbtn" onclick="downloadPhoto()" title="Download" disabled>⬇</button>
@@ -1562,6 +1563,9 @@
       var live = state === 'camera';
       document.getElementById('captureBtn').style.display = live ? '' : 'none';
       document.getElementById('cancelCamBtn').style.display = live ? '' : 'none';
+      // Camera/retake is available in every non-live state (empty or a photo already shown),
+      // so a saved photo can always be retaken — not just replaced via upload.
+      document.getElementById('camBtn').style.display = live ? 'none' : '';
       document.getElementById('uploadBtn').style.display = live ? 'none' : '';
       document.getElementById('editPhotoBtn').style.display = live ? 'none' : '';
       document.getElementById('dlPhotoBtn').style.display = live ? 'none' : '';
