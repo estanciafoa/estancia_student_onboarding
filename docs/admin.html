@@ -126,8 +126,8 @@
 
     /* student photo capture (center pane) — single media frame, one state at a time */
     .photo { margin-top: 18px; padding-top: 16px; border-top: 1px solid #eef1f7; }
-    .photo-row { display: flex; gap: 12px; align-items: flex-start; flex-wrap: wrap; }
-    .photo-stage { position: relative; flex: 0 1 280px; width: 280px; max-width: 100%; aspect-ratio: 4 / 3;
+    .photo-row { display: flex; flex-direction: column; gap: 10px; align-items: stretch; }
+    .photo-stage { position: relative; width: 100%; max-width: 440px; aspect-ratio: 4 / 3;
                    border-radius: 12px; overflow: hidden; background: var(--grey); border: 1px solid var(--line); box-shadow: var(--sh-sm); }
     .cam-placeholder { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center;
                        justify-content: center; gap: 7px; color: var(--muted); cursor: pointer; background: transparent;
@@ -145,8 +145,18 @@
                display: flex; align-items: center; justify-content: center; box-shadow: var(--sh-md); transition: background .15s; }
     .photo-x:hover { background: var(--err); }
     .photo-note { font-size: 12px; color: var(--muted); margin-top: 10px; line-height: 1.45; max-width: 360px; }
-    /* vertical icon toolbar beside the frame */
-    .photo-tools { display: flex; flex-direction: column; gap: 8px; flex: 0 0 auto; }
+    /* text button row below the photo frame */
+    .photo-tools { display: flex; flex-direction: row; flex-wrap: wrap; gap: 8px; max-width: 440px; }
+    .pbtn { height: 38px; padding: 0 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface);
+            color: var(--pri); font-size: 13px; font-weight: 700; line-height: 1; cursor: pointer; display: inline-flex;
+            align-items: center; justify-content: center; transition: border-color .12s, background .12s, transform .05s; }
+    .pbtn:hover { border-color: var(--accent); background: #f1fbfd; }
+    .pbtn:active { transform: translateY(1px); }
+    .pbtn:disabled { opacity: .4; cursor: default; background: var(--surface); border-color: var(--line); transform: none; }
+    .pbtn.primary { background: linear-gradient(180deg, var(--accent), var(--acc-d)); color: var(--pri-d); border-color: transparent; }
+    .pbtn.save { background: var(--ok); color: #fff; border-color: transparent; }
+    .pbtn.save:disabled { background: #9aa0a6; color: #fff; opacity: .7; }
+    .pbtn.save:not(:disabled):hover { filter: brightness(1.06); }
     .iconbtn { width: 42px; height: 42px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface);
                color: var(--pri); font-size: 18px; line-height: 1; cursor: pointer; display: flex; align-items: center;
                justify-content: center; transition: border-color .12s, background .12s, transform .05s; }
@@ -360,6 +370,11 @@
     body.theme-dark .iconbtn.primary { color: var(--pri-d); }
     body.theme-dark .iconbtn.save { color: #fff; }
     body.theme-dark .iconbtn:disabled { background: #1b2733; }
+    body.theme-dark .pbtn { background: #1b2733; color: var(--accent); border-color: var(--line); }
+    body.theme-dark .pbtn:hover { background: #25394a; }
+    body.theme-dark .pbtn.primary { color: var(--pri-d); }
+    body.theme-dark .pbtn.save { color: #fff; }
+    body.theme-dark .pbtn:disabled { background: #1b2733; }
     body.theme-dark .ghostbtn { background: #1b2733; color: var(--accent); }
     body.theme-dark .thumb .actions { border-top-color: var(--line); }
     body.theme-dark .thumb .actions button { background: #1b2733; color: var(--accent); }
@@ -426,8 +441,8 @@
           <div><label>Caretaker no.</label><input id="fCaretakerNumber" inputmode="numeric"></div>
         </div>
         <div class="fe-row">
-          <div><label>Agreement date from</label><input id="fAgreementDate" placeholder="dd-mmm-yyyy"></div>
-          <div><label>Agreement date to</label><input id="fTenancy" placeholder="dd-mmm-yyyy"></div>
+          <div><label>Agreement date from</label><input id="fAgreementDate" type="date"></div>
+          <div><label>Agreement date to</label><input id="fTenancy" type="date"></div>
           <button onclick="saveFlatEdit()">Save</button>
         </div>
         <div id="flatEditStatus" class="hint"></div>
@@ -467,14 +482,14 @@
               </div>
             </div>
             <div class="photo-tools">
-              <button id="captureBtn" class="iconbtn primary" onclick="capturePhoto()" title="Capture photo" style="display:none">📸</button>
-              <button id="cancelCamBtn" class="iconbtn" onclick="cancelCam()" title="Cancel" style="display:none">✕</button>
-              <button id="camBtn" class="iconbtn" onclick="startCam()" title="Take / retake with camera">📷</button>
-              <label id="uploadBtn" class="iconbtn" for="photoFile" title="Upload image">⬆</label>
-              <button id="editPhotoBtn" class="iconbtn" onclick="openPhotoEditor()" title="Crop / colour" disabled>✂</button>
-              <button id="dlPhotoBtn" class="iconbtn" onclick="downloadPhoto()" title="Download" disabled>⬇</button>
-              <button id="idCardBtn" class="iconbtn" onclick="downloadIdCard()" title="Download ID card (front)" disabled>🪪</button>
-              <button id="savePhotoBtn" class="iconbtn save" onclick="savePhoto()" title="Save photo" disabled>✓</button>
+              <button id="captureBtn" class="pbtn primary" onclick="capturePhoto()" title="Capture photo" style="display:none">Capture</button>
+              <button id="cancelCamBtn" class="pbtn" onclick="cancelCam()" title="Cancel" style="display:none">Cancel</button>
+              <button id="camBtn" class="pbtn" onclick="startCam()" title="Take / retake with camera">Camera</button>
+              <label id="uploadBtn" class="pbtn" for="photoFile" title="Upload image">Upload</label>
+              <button id="editPhotoBtn" class="pbtn" onclick="openPhotoEditor()" title="Crop / colour" disabled>Crop / colour</button>
+              <button id="dlPhotoBtn" class="pbtn" onclick="downloadPhoto()" title="Download" disabled>Download</button>
+              <button id="idCardBtn" class="pbtn" onclick="downloadIdCard()" title="Download ID card (front)" disabled>ID card</button>
+              <button id="savePhotoBtn" class="pbtn save" onclick="savePhoto()" title="Save photo" disabled>Save</button>
               <input type="file" id="photoFile" accept="image/*" onchange="onPhotoFile(this)">
               <input type="file" id="photoCapture" accept="image/*" capture="user" onchange="onPhotoFile(this)">
             </div>
@@ -1110,8 +1125,8 @@
       document.getElementById('fOwnerEmail').value = f.OwnerEmail || '';
       document.getElementById('fCaretakerName').value = f.CaretakerName || '';
       document.getElementById('fCaretakerNumber').value = f.CaretakerNumber || '';
-      document.getElementById('fAgreementDate').value = f.AgreementDate || '';
-      document.getElementById('fTenancy').value = f.TenancyPeriod || '';
+      document.getElementById('fAgreementDate').value = toInputDate(f.AgreementDate);
+      document.getElementById('fTenancy').value = toInputDate(f.TenancyPeriod);
       document.getElementById('flatEditStatus').textContent = '';
     }
     function saveFlatEdit() {
@@ -1213,6 +1228,14 @@
     function fmtDate(v) {
       var d = parseDate(v);
       return d ? (ordinal(d.getDate()) + ' ' + MONTHS[d.getMonth()] + ' ' + d.getFullYear()) : String(v == null ? '' : v).trim();
+    }
+    // Format a stored date (any of the parseDate formats) as yyyy-mm-dd for a <input type="date">.
+    // Returns '' if it can't be parsed, so the picker just shows empty rather than a bad value.
+    function toInputDate(v) {
+      var d = parseDate(v);
+      if (!d) return '';
+      var mo = ('0' + (d.getMonth() + 1)).slice(-2), day = ('0' + d.getDate()).slice(-2);
+      return d.getFullYear() + '-' + mo + '-' + day;
     }
     // One student → the 8 column values. `update` sets the Update flag (default 'N'; the
     // approve flow passes 'U'). Returns the array; studentRowArr tab-joins it for clipboard.
