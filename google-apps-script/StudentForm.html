@@ -62,8 +62,6 @@
     /* Tripartite agreement + on-screen signature (final step) */
     .terms { font-size:13px; color:#3c4043; line-height:1.5; }
     .terms p { margin:0 0 8px; }
-    .agree-all { display:flex; align-items:center; gap:10px; margin:10px 0 4px; font-size:13px; color:var(--pri); cursor:pointer; }
-    .agree-all input[type=checkbox] { width:20px; height:20px; accent-color:var(--pri); }
     .agree-list { list-style:none; counter-reset:tp; padding:0; margin:6px 0 0;
                   max-height:340px; overflow-y:auto; border:1px solid var(--line); border-radius:8px; }
     .agree-list li { counter-increment:tp; display:flex; align-items:flex-start; gap:10px;
@@ -195,7 +193,6 @@
           <div class="terms">
             <p><strong>Undertaking &amp; Affirmation by Tenants (Annexure 2A).</strong> This is a tripartite agreement between the flat owner, you (the resident) and the Estancia Flat Owners Association (EFOA). Please read and tick each of the 28 points to confirm, then agree and sign.</p>
           </div>
-          <label class="agree-all"><input type="checkbox" id="tpAll" onchange="toggleAllTp(this)"> <strong>Tick all 28 points</strong></label>
           <ol class="agree-list" id="agreeList">
             <li><input type="checkbox" class="tp" id="tp1"><label for="tp1">I agree that this undertaking is an <strong>integral part of the rent agreement</strong>.</label></li>
             <li><input type="checkbox" class="tp" id="tp2"><label for="tp2">I will <strong>comply with EFOA bye-laws and the rules &amp; regulations</strong> in force from time to time, and <strong>shall not cause any nuisance</strong> to anyone else in Estancia Township in any manner.</label></li>
@@ -664,18 +661,10 @@
       return b.length > 0 && Array.prototype.every.call(b, function (c) { return c.checked; });
     }
 
-    // "Tick all 28 points" master toggle.
-    function toggleAllTp(master) {
-      Array.prototype.forEach.call(tpBoxes(), function (c) { c.checked = master.checked; });
-      updateAgreeBtn();
-    }
-
     // Enable "I Agree" only once every point is ticked.
     function updateAgreeBtn() {
       var ok = allAgreed();
       document.getElementById('agreeBtn').disabled = !ok;
-      var master = document.getElementById('tpAll');
-      if (master) master.checked = ok;
       // If they untick after agreeing, retract consent and hide the signature pad.
       if (agreed && !ok) {
         agreed = false;
