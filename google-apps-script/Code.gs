@@ -125,6 +125,7 @@ function doPost(e) {
       // Admin web-page actions (also callable via google.script.run when embedded).
       case 'getLogo':                result = getLogo(); break;
       case 'getCompareDocs':         result = getCompareDocs(payload.studentId); break;
+      case 'getDocBytes':            result = getDocBytes(payload.fileId || (body && body.fileId)); break;
       case 'getFlatsOverview':       result = getFlatsOverview(); break;
       case 'getFlatAgreementDoc':    result = getFlatAgreementDoc(body.flat || payload.flat); break;
       case 'saveStudentDetails':     result = saveStudentDetails(payload.studentId, payload.fields); break;
@@ -712,46 +713,46 @@ function getCompareDocs(studentId) {
   const header = found.header, row = found.row;
   const get = (h) => String(row[header.indexOf(h)] || '').trim();
   const urls = (v) => v.split(/\s*,\s*/).filter(Boolean);
+  // Small, always-shown images ship inline (base64): photo + signature feed the photo pane,
+  // signature pane, ID card and crop editor immediately.
   const toImg = (u) => {
     const b = driveBlobFromUrl_(u);
     return b ? { base64: Utilities.base64Encode(b.getBytes()), mime: b.getContentType() || 'image/jpeg', url: u } : null;
   };
-
-  const flat = get('HouseId');
-  const aadhar = urls(get('AadharPhotoUrl')).map(toImg).filter(Boolean);
-  const college = urls(get('CollegeIdPhotoUrl')).map(toImg).filter(Boolean);
-  const photo = get('PhotoUrl') ? toImg(get('PhotoUrl')) : null;
-  const selfPhoto = get('SelfPhotoUrl') ? toImg(get('SelfPhotoUrl')) : null;
-  const signature = get('SignatureUrl') ? toImg(get('SignatureUrl')) : null;
-
-  let agreement = null;
-  const agUrl = getFlatAgreementUrl_(flat);
-  if (agUrl) {
-    const b = driveBlobFromUrl_(agUrl);
-    const mt = b ? (b.getContentType() || '') : '';
-    agreement = {
-      url: agUrl,
-      mime: mt,
-      base64: (b && mt.indexOf('image') === 0) ? Utilities.base64Encode(b.getBytes()) : ''
-    };
-  }
+  // Heavy ID scans ship as lightweight refs (id + mime, no bytes). The page renders them
+  // straight from Drive and fetches bytes on demand (rotate / download / PDF) via getDocBytes.
+  const toRef = (u) => {
+    const id = driveIdFromUrl_(u);
+    if (!id) return null;
+    let mime = '';
+    try { mime = DriveApp.getFileById(id).getMimeType() || ''; } catch (e) {}
+    return { id: id, url: u, mime: mime };
+  };
 
   return {
     studentId: studentId,
-    flat: flat,
+    flat: get('HouseId'),
     form: {
       name: get('Name'), aadhar: get('AadharNumber'), phone: get('Phone'), email: get('Email'),
       sex: get('Sex'), parentName: get('ParentName'), parentMobile: get('ParentMobile'),
       collegeId: get('CollegeStudentId'), collegeName: get('CollegeName'),
       year: get('AcademicYear'), status: get('Status')
     },
-    aadhar: aadhar,
-    college: college,
-    photo: photo,
-    selfPhoto: selfPhoto,
-    signature: signature,
-    agreement: agreement
+    aadhar: urls(get('AadharPhotoUrl')).map(toRef).filter(Boolean),
+    college: urls(get('CollegeIdPhotoUrl')).map(toRef).filter(Boolean),
+    photo: get('PhotoUrl') ? toImg(get('PhotoUrl')) : null,
+    selfPhoto: get('SelfPhotoUrl') ? toImg(get('SelfPhotoUrl')) : null,
+    signature: get('SignatureUrl') ? toImg(get('SignatureUrl')) : null
   };
+}
+
+// Web admin: fetch one Drive file's bytes on demand (base64 + mime). Keeps the initial
+// getCompareDocs response light — heavy ID scans are sent as refs and pulled only when the
+// page needs the real bytes (rotate, download, PDF rendering).
+function getDocBytes(fileId) {
+  const b = driveBlobFromUrl_(fileId);
+  if (!b) throw new Error('File not found.');
+  return { base64: Utilities.base64Encode(b.getBytes()), mime: b.getContentType() || 'image/jpeg' };
 }
 
 // Web admin: replace one of a student's Aadhaar / College-ID images with a rotated copy.
@@ -1313,6 +1314,13 @@ function driveBlobFromUrl_(urlOrId) {
   const m = id.match(/[-\w]{25,}/); // extract the Drive file id from a share URL
   if (m) id = m[0];
   try { return DriveApp.getFileById(id).getBlob(); } catch (e) { return null; }
+}
+
+// Just the Drive file id from a share URL (or an id passed straight through).
+function driveIdFromUrl_(urlOrId) {
+  if (!urlOrId) return '';
+  const m = String(urlOrId).match(/[-\w]{25,}/);
+  return m ? m[0] : '';
 }
 
 function driveFileFromUrl_(urlOrId) {

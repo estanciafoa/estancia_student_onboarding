@@ -1042,6 +1042,7 @@
       getFlatForReview: function (p) { return [p.flat]; },
       getFlatAgreementDoc: function (p) { return [p.flat]; },
       getCompareDocs: function (p) { return [p.studentId]; },
+      getDocBytes: function (p) { return [p.fileId]; },
       getFlatsOverview: function () { return []; },
       generateAnnexurePdf: function (p) { return [p.flat]; },
       emailOwnerDraft: function (p) { return [p.flat]; },
@@ -2115,11 +2116,35 @@
       Array.prototype.forEach.call(body.querySelectorAll('.thumb[data-pdf]'), function (w) {
         var im = docItemFor(w.getAttribute('data-kind'), w.getAttribute('data-i'));
         var slot = w.querySelector('.pdf-slot');
-        if (im && slot) renderPdfThumbs(slot, im.base64);
+        if (im && slot) ensureBytes(im)
+          .then(function () { renderPdfThumbs(slot, im.base64); })
+          .catch(function () { slot.innerHTML = '<div class="err" style="padding:10px">Could not load PDF.</div>'; });
       });
       setPannable(body, !!((d.aadhar && d.aadhar.length) || (d.college && d.college.length)));
       renderPhoto();   // docs now include the photo bytes → refresh the photo section
       renderSign();    // …and the resident's signature image
+    }
+
+    // Public display URL for a Drive file (renders in <img> for anyone-with-link files).
+    function dispUrl(id) { return 'https://lh3.googleusercontent.com/d/' + id + '=w1600'; }
+    // Ensure a doc ref has its bytes (base64). Fetched once from Drive, then cached on the object.
+    function ensureBytes(im) {
+      if (!im) return Promise.reject(new Error('No image.'));
+      if (im.base64) return Promise.resolve(im);
+      return callServer('getDocBytes', { fileId: im.id || im.url }).then(function (r) {
+        im.base64 = r.base64; im.mime = r.mime || im.mime || 'image/jpeg';
+        return im;
+      });
+    }
+    // If the fast Drive display URL fails to load, fall back to fetching the bytes.
+    function thumbFallback(img) {
+      var w = img.closest('.thumb'); if (!w) return;
+      var im = docItemFor(w.getAttribute('data-kind'), w.getAttribute('data-i'));
+      if (!im) return;
+      img.onerror = null;   // avoid a retry loop
+      ensureBytes(im).then(function () {
+        img.src = 'data:' + (im.mime || 'image/jpeg') + ';base64,' + im.base64;
+      }).catch(function () {});
     }
 
     function imagesHtml(imgs, emptyMsg, kind) {
@@ -2127,9 +2152,12 @@
       return imgs.map(function (im, idx) {
         var mime = im.mime || 'image/jpeg';
         var pdf = isPdfItem(im);
+        // Images render straight from Drive (fast); bytes are pulled only when needed. If a ref
+        // already has its bytes cached (e.g. after a rotate), use those.
+        var imgSrc = im.base64 ? ('data:' + mime + ';base64,' + im.base64) : dispUrl(im.id);
         var inner = pdf
           ? '<div class="pdf-slot"><div class="ph-load"><span class="ph-spin"></span><span>Rendering PDF…</span></div></div>'
-          : '<img src="data:' + mime + ';base64,' + im.base64 + '">';
+          : '<img src="' + imgSrc + '" onerror="thumbFallback(this)">';
         var actions =
           (pdf ? '' : '<button type="button" onclick="rotateThumb(this)">Rotate ⟳</button>') +
           '<button type="button" onclick="dlThumb(this)">Download ⬇</button>';
@@ -2374,32 +2402,42 @@
     function rotateThumb(btn) {
       var w = btn.closest('.thumb'); if (!w) return;
       var s = students[activeTab]; if (!s) return;
-      var img = w.querySelector('img'); if (!img) return;
-      if (!img.naturalWidth || !img.naturalHeight) { setStatus('Image is still loading — try again.', false); return; }
       var kind = w.getAttribute('data-kind'), i = w.getAttribute('data-i');
-      var im = docItemFor(kind, i);
-
-      var canvas = document.createElement('canvas');
-      canvas.width = img.naturalHeight; canvas.height = img.naturalWidth;   // 90° swaps w/h
-      var ctx = canvas.getContext('2d');
-      ctx.translate(canvas.width, 0);
-      ctx.rotate(Math.PI / 2);                                              // clockwise
-      ctx.drawImage(img, 0, 0);
-      var dataUrl = canvas.toDataURL('image/jpeg', 0.92);
-      var base64 = dataUrl.split(',')[1];
-
-      // Instant visual feedback + keep the in-memory doc list in sync (download / re-zoom).
-      img.src = dataUrl;
-      if (im) { im.base64 = base64; im.mime = 'image/jpeg'; }
-      w.setAttribute('data-mime', 'image/jpeg');
-
+      var im = docItemFor(kind, i); if (!im) return;
       var buttons = w.querySelectorAll('.actions button');
       Array.prototype.forEach.call(buttons, function (b) { b.disabled = true; });
-      setStatus('Saving rotation…', true);
-      callServer('rotateStudentDoc', { studentId: s.StudentId, kind: kind, index: +i, base64: base64 })
-        .then(function () { setStatus('Rotation saved.', true); })
-        .catch(function (e) { setStatus(e && e.message ? e.message : 'Could not save the rotation.', false); })
-        .then(function () { Array.prototype.forEach.call(buttons, function (b) { b.disabled = false; }); });
+      setStatus('Loading image…', true);
+      // Rotate from freshly-fetched bytes (a data URL is same-origin, so the canvas isn't
+      // tainted — the displayed thumbnail may be a cross-origin Drive URL).
+      ensureBytes(im).then(function () {
+        var img = new Image();
+        img.onload = function () {
+          var canvas = document.createElement('canvas');
+          canvas.width = img.naturalHeight; canvas.height = img.naturalWidth;   // 90° swaps w/h
+          var ctx = canvas.getContext('2d');
+          ctx.translate(canvas.width, 0);
+          ctx.rotate(Math.PI / 2);                                              // clockwise
+          ctx.drawImage(img, 0, 0);
+          var dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+          var base64 = dataUrl.split(',')[1];
+          var shown = w.querySelector('img'); if (shown) shown.src = dataUrl;   // instant feedback
+          im.base64 = base64; im.mime = 'image/jpeg';
+          w.setAttribute('data-mime', 'image/jpeg');
+          setStatus('Saving rotation…', true);
+          callServer('rotateStudentDoc', { studentId: s.StudentId, kind: kind, index: +i, base64: base64 })
+            .then(function () { setStatus('Rotation saved.', true); })
+            .catch(function (e) { setStatus(e && e.message ? e.message : 'Could not save the rotation.', false); })
+            .then(function () { Array.prototype.forEach.call(buttons, function (b) { b.disabled = false; }); });
+        };
+        img.onerror = function () {
+          setStatus('Could not load the image to rotate.', false);
+          Array.prototype.forEach.call(buttons, function (b) { b.disabled = false; });
+        };
+        img.src = 'data:' + (im.mime || 'image/jpeg') + ';base64,' + im.base64;
+      }).catch(function (e) {
+        setStatus(e && e.message ? e.message : 'Could not load the image.', false);
+        Array.prototype.forEach.call(buttons, function (b) { b.disabled = false; });
+      });
     }
 
     // Download an Aadhaar/College image from its thumbnail, named <id>_<kind>_<n>.<ext>.
@@ -2407,11 +2445,13 @@
       var w = btn.closest('.thumb'); if (!w) return;
       var s = students[activeTab] || {};
       var kind = w.getAttribute('data-kind'), i = w.getAttribute('data-i'), mime = w.getAttribute('data-mime');
-      var im = docItemFor(kind, i);                      // works for PDF (no <img>) and images
-      var img = w.querySelector('img');
-      var src = im ? ('data:' + (im.mime || mime) + ';base64,' + im.base64) : (img && img.src);
-      if (!src) return;
-      downloadDataUrl(src, getIdBase(s) + '_' + kind + '_' + i + '.' + extFromMime(mime));
+      var im = docItemFor(kind, i); if (!im) return;   // works for PDF (no <img>) and images
+      setStatus('Preparing download…', true);
+      ensureBytes(im).then(function () {
+        var m = im.mime || mime;
+        downloadDataUrl('data:' + m + ';base64,' + im.base64, getIdBase(s) + '_' + kind + '_' + i + '.' + extFromMime(m));
+        setStatus('', true);
+      }).catch(function (e) { setStatus(e && e.message ? e.message : 'Download failed.', false); });
     }
     // Download the student photo as <id>.jpg.
     function downloadPhoto() {
