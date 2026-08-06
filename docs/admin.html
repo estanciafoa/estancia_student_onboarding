@@ -1081,7 +1081,7 @@
       saveStudentVerification: function (p) { return [p]; },
       webUploadAgreement: function (p) { return [p.flat, p.base64, p.fileName, p.mimeType]; }
     };
-    function callServer(action, payload) {
+    function callServerRaw(action, payload) {
       payload = payload || {};
       return new Promise(function (resolve, reject) {
         if (gas()) {
@@ -1093,6 +1093,38 @@
         } else {
           reject(new Error('Set the API URL & token in ⚙ Settings (top-right).'));
         }
+      });
+    }
+
+    // ---------- step timing (diagnostic) ----------
+    // Every callServer() call is timed and logged live to the console, and kept in
+    // window._timings for a full report. Run clearTimings() before a test (e.g. before
+    // clicking Load on a flat), reproduce the issue, then call printTimings() to see every
+    // step in order with its duration and pass/fail — no server access needed on our end.
+    var _timings = [];
+    function clearTimings() { _timings.length = 0; console.log('[timing] cleared.'); }
+    function printTimings() {
+      console.table(_timings.map(function (t) {
+        return { action: t.action, ms: t.ms, ok: t.ok, detail: t.detail || '', at: t.at };
+      }));
+      var total = _timings.reduce(function (s, t) { return s + t.ms; }, 0);
+      console.log('[timing] ' + _timings.length + ' call(s), ' + total + 'ms total.');
+      return _timings;
+    }
+    function callServer(action, payload) {
+      var t0 = performance.now();
+      var at = new Date().toISOString().slice(11, 23);   // HH:MM:SS.mmm, local run order
+      return callServerRaw(action, payload).then(function (result) {
+        var ms = Math.round(performance.now() - t0);
+        _timings.push({ action: action, ms: ms, ok: true, at: at });
+        console.log('[timing] ' + at + '  ' + action + '  ' + ms + 'ms');
+        return result;
+      }, function (err) {
+        var ms = Math.round(performance.now() - t0);
+        var detail = err && err.message ? err.message : String(err);
+        _timings.push({ action: action, ms: ms, ok: false, detail: detail, at: at });
+        console.log('[timing] ' + at + '  ' + action + '  ' + ms + 'ms  FAILED: ' + detail);
+        throw err;
       });
     }
 
