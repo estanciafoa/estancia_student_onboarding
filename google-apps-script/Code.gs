@@ -130,6 +130,7 @@ function doPost(e) {
       case 'getDocBytesChunk':       result = getDocBytesChunk(payload.fileId, payload.chunkIndex); break;
       case 'getFlatsOverview':       result = getFlatsOverview(); break;
       case 'getFlatAgreementDoc':    result = getFlatAgreementDoc(body.flat || payload.flat); break;
+      case 'getFlatAgreementRef':    result = getFlatAgreementRef(body.flat || payload.flat); break;
       case 'saveStudentDetails':     result = saveStudentDetails(payload.studentId, payload.fields); break;
       case 'deleteStudent':          result = deleteStudent(body.studentId || (payload && payload.studentId)); break;
       case 'saveFlatDetails':        result = saveFlatDetails(body.flat || payload.flat, payload.fields); break;
@@ -541,21 +542,23 @@ function getFlatForReview(flat) {
 
   const sh = studentsSheetAndHeader_();
   const header = sh.header;
-  const values = sh.sheet.getDataRange().getValues();
-  values.shift();
-
   const idx = {};
   header.forEach((h, i) => { idx[h] = i; });
   const ACTIVEISH = { Submitted: 1, Verified: 1, Active: 1, InForm: 1, Approved: 1 };
 
-  const students = values
-    .filter(r => String(r[idx.HouseId]).trim() === flat && ACTIVEISH[String(r[idx.Status])])
-    .slice(0, MAX_STUDENTS_PER_HOUSE)
-    .map(r => {
-      const o = {};
-      header.forEach(h => { o[h] = cellSafe_(r[idx[h]]); });
-      return o;
-    });
+  // Search only the HouseId column instead of reading the whole Students sheet — Sheets finds
+  // the matching rows server-side, so this stays fast no matter how large the roster has grown
+  // across other flats/semesters (see findRowNumbersByColumn_ for why, and its whitespace
+  // caveat — worth confirming a flat lookup still matches correctly against real data).
+  const rowNumbers = findRowNumbersByColumn_(sh.sheet, idx.HouseId + 1, flat);
+  const students = [];
+  for (let i = 0; i < rowNumbers.length && students.length < MAX_STUDENTS_PER_HOUSE; i++) {
+    const row = sh.sheet.getRange(rowNumbers[i], 1, 1, header.length).getValues()[0];
+    if (!ACTIVEISH[String(row[idx.Status])]) continue;
+    const o = {};
+    header.forEach(h => { o[h] = cellSafe_(row[idx[h]]); });
+    students.push(o);
+  }
 
   // agreementUrl is intentionally omitted: the admin page never reads it here — it always
   // follows up with its own getFlatAgreementDoc call, which looks the URL up itself. Computing
@@ -1009,6 +1012,9 @@ function checkAnnexureTemplate_() {
 
 // Web admin: the flat's agreement file bytes (base64) so the left panel can render
 // it (PDF → page thumbnails via pdf.js, or a single image). null if none uploaded.
+// Kept for compatibility; the admin page now uses getFlatAgreementRef + the generic
+// getDocBytesInfo/getDocBytesChunk pair below instead — shipping a whole scanned agreement's
+// base64 in one response was slow/heavy enough to time out for larger multi-page scans.
 function getFlatAgreementDoc(flat) {
   flat = String(flat || '').trim();
   if (!flat) return null;
@@ -1020,6 +1026,18 @@ function getFlatAgreementDoc(flat) {
     mime: b ? (b.getContentType() || '') : '',
     base64: b ? Utilities.base64Encode(b.getBytes()) : ''
   };
+}
+
+// Lightweight: just the agreement's URL + mime, no bytes. The admin page fetches the actual
+// bytes afterward through the generic chunked getDocBytesInfo/getDocBytesChunk pair (the same
+// path Aadhaar/College-ID scans use), rather than one large response.
+function getFlatAgreementRef(flat) {
+  flat = String(flat || '').trim();
+  if (!flat) return null;
+  const url = getFlatAgreementUrl_(flat);
+  if (!url) return null;
+  const f = driveFileFromUrl_(url);
+  return { url: url, mime: f ? (f.getMimeType() || '') : '' };
 }
 
 // Admin: store the flat's agreement (PDF or image) in the flat's Drive folder.
@@ -1585,6 +1603,28 @@ function escapeRegex_(s) {
   return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+// Row numbers (1-based, sheet rows) where the given 1-based column exactly equals `value`,
+// found via Sheets' own text search instead of pulling every row into the script first.
+// Cheap and stays cheap as a sheet grows to thousands of rows, since only the matching rows
+// (rarely more than a handful for a given flat or student) are ever read in full afterward —
+// contrast with `sheet.getDataRange().getValues()`, whose cost scales with the WHOLE sheet
+// on every single call, no matter how few rows actually match.
+// matchCase(true) keeps this equivalent to the old String(cell) === value comparisons it
+// replaces (case-sensitive, exact); if the value in the sheet was ever hand-entered with
+// stray leading/trailing whitespace this can miss where a lenient trim() wouldn't — worth
+// keeping an eye on the very first time this runs against real data.
+function findRowNumbersByColumn_(sheet, colIndex1Based, value) {
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return [];
+  const range = sheet.getRange(2, colIndex1Based, lastRow - 1, 1);
+  const matches = range.createTextFinder(String(value))
+    .matchEntireCell(true)
+    .matchCase(true)
+    .useRegularExpression(false)
+    .findAll();
+  return matches.map(m => m.getRow());
+}
+
 function findStudentRowById_(studentId) {
   const ss = getSpreadsheet_();
   const students = ss.getSheetByName(SHEET_STUDENTS);
@@ -1592,16 +1632,16 @@ function findStudentRowById_(studentId) {
     return null;
   }
 
-  const values = students.getDataRange().getValues();
-  const header = values[0];
+  const lastCol = Math.max(1, students.getLastColumn());
+  const header = students.getRange(1, 1, 1, lastCol).getValues()[0];
   const iStudentId = header.indexOf('StudentId');
+  if (iStudentId < 0) return null;
 
-  for (let i = 1; i < values.length; i++) {
-    if (String(values[i][iStudentId]) === String(studentId)) {
-      return { header, row: values[i], rowNumber: i + 1 };
-    }
-  }
-  return null;
+  const rowNumbers = findRowNumbersByColumn_(students, iStudentId + 1, studentId);
+  if (!rowNumbers.length) return null;
+  const rowNumber = rowNumbers[0];
+  const row = students.getRange(rowNumber, 1, 1, header.length).getValues()[0];
+  return { header, row, rowNumber };
 }
 
 // Reads the agreement from the selected page images only (small payload).

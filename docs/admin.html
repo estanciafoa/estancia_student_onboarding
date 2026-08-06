@@ -1065,6 +1065,7 @@
       getLogo: function () { return []; },
       getFlatForReview: function (p) { return [p.flat]; },
       getFlatAgreementDoc: function (p) { return [p.flat]; },
+      getFlatAgreementRef: function (p) { return [p.flat]; },
       getCompareDocs: function (p) { return [p.studentId, p.knownFields]; },
       getDocBytes: function (p) { return [p.fileId]; },
       getDocBytesInfo: function (p) { return [p.fileId]; },
@@ -2170,21 +2171,10 @@
       html += imagesHtml(d.college, 'No College/Company ID image on file.', 'collegeid');
       body.innerHTML = html || '<div class="empty">No documents.</div>';
       applyPaneZoom('R');
-      // Any Aadhaar / ID uploaded as a PDF renders into its slot with pdf.js. Fetched one at a
-      // time (chained), not all at once — firing several getDocBytes calls at Apps Script in
-      // parallel can exceed its concurrent-execution limit, which comes back as an HTML error
-      // page instead of JSON ("Unexpected token '<'…") rather than a normal failed request.
-      var pdfChain = Promise.resolve();
-      Array.prototype.forEach.call(body.querySelectorAll('.thumb[data-pdf]'), function (w) {
-        var im = docItemFor(w.getAttribute('data-kind'), w.getAttribute('data-i'));
-        var slot = w.querySelector('.pdf-slot');
-        if (!im || !slot) return;
-        pdfChain = pdfChain.then(function () {
-          return ensureBytes(im)
-            .then(function () { renderPdfThumbs(slot, im.base64); })
-            .catch(function (e) { slot.innerHTML = pdfFailHtml(e, w.getAttribute('data-kind'), w.getAttribute('data-i'), im.url); });
-        });
-      });
+      // PDF thumbs show Drive's own preview by default (imagesHtml → pdfPreviewHtml) — no
+      // Apps Script call needed to just view one. Pulling the actual bytes for the precise
+      // pdf.js/canvas render (shift-drag magnify, pane zoom) happens on demand instead, via
+      // the "Full view" button (fullViewPdf) — see its comment for why.
       setPannable(body, !!((d.aadhar && d.aadhar.length) || (d.college && d.college.length)));
       renderPhoto();   // docs now include the photo bytes → refresh the photo section
       renderSign();    // …and the resident's signature image
@@ -2200,16 +2190,32 @@
              ' <a href="#" onclick="retryPdfThumb(this,\'' + kind + '\',' + i + ');return false;">Retry</a>' + openLink + '</div>';
     }
 
-    // Manually retry one PDF thumb after a failed load (see the "Retry" link paintDocs adds).
+    // Pulls the actual PDF bytes (chunked) and renders precise pdf.js/canvas pages into
+    // `slot`, replacing whatever was there (the fast iframe preview, or a failed attempt).
+    function loadFullPdfInto(slot, im, kind, i) {
+      slot.innerHTML = '<div class="ph-load"><span class="ph-spin"></span><span>Rendering full PDF…</span></div>';
+      ensureBytes(im)
+        .then(function () { renderPdfThumbs(slot, im.base64); })
+        .catch(function (e) { slot.innerHTML = pdfFailHtml(e, kind, i, im.url); });
+    }
+    // "Full view" button on a PDF thumb: swaps the fast Drive iframe preview for the precise
+    // pdf.js render, needed only for shift-drag magnify or the pane's zoom controls (a
+    // cross-origin iframe's content can't be drawn to canvas, so those don't work on it).
+    function fullViewPdf(btn) {
+      var w = btn.closest('.thumb'); if (!w) return;
+      var kind = w.getAttribute('data-kind'), i = w.getAttribute('data-i');
+      var im = docItemFor(kind, i); if (!im) return;
+      var slot = w.querySelector('.pdf-slot'); if (!slot) return;
+      loadFullPdfInto(slot, im, kind, i);
+    }
+    // Manually retry one PDF thumb after a failed full-view load (see the "Retry" link
+    // pdfFailHtml adds).
     function retryPdfThumb(a, kind, i) {
       var w = a.closest('.thumb'); if (!w) return;
       var slot = w.querySelector('.pdf-slot'); if (!slot) return;
       var im = docItemFor(kind, i); if (!im) return;
       im.base64 = null;   // discard whatever partial/failed bytes may be cached, force a re-fetch
-      slot.innerHTML = '<div class="ph-load"><span class="ph-spin"></span><span>Rendering PDF…</span></div>';
-      ensureBytes(im)
-        .then(function () { renderPdfThumbs(slot, im.base64); })
-        .catch(function (e) { slot.innerHTML = pdfFailHtml(e, kind, i, im.url); });
+      loadFullPdfInto(slot, im, kind, i);
     }
 
     // Public display URL for a Drive file (renders in <img> for anyone-with-link files).
@@ -2253,6 +2259,14 @@
       }).catch(function () {});
     }
 
+    // Fast default PDF view: Drive's own preview in an iframe — the browser loads it straight
+    // from Drive, no Apps Script round-trip at all (unlike pulling bytes to render with
+    // pdf.js, which is what was making PDF docs slow to open). "Full view" swaps this out
+    // for the pdf.js/canvas render on demand — see fullViewPdf.
+    function pdfPreviewHtml(id) {
+      if (!id) return '<div class="ph-load">PDF preview unavailable.</div>';
+      return '<iframe src="https://drive.google.com/file/d/' + id + '/preview" style="width:100%;aspect-ratio:3/4;border:0;display:block" loading="lazy"></iframe>';
+    }
     function imagesHtml(imgs, emptyMsg, kind) {
       if (!imgs || !imgs.length) return '<div class="empty" style="padding:8px 4px">' + emptyMsg + '</div>';
       return imgs.map(function (im, idx) {
@@ -2262,10 +2276,10 @@
         // already has its bytes cached (e.g. after a rotate), use those.
         var imgSrc = im.base64 ? ('data:' + mime + ';base64,' + im.base64) : dispUrl(im.id);
         var inner = pdf
-          ? '<div class="pdf-slot"><div class="ph-load"><span class="ph-spin"></span><span>Rendering PDF…</span></div></div>'
+          ? '<div class="pdf-slot">' + pdfPreviewHtml(im.id) + '</div>'
           : '<img src="' + imgSrc + '" onerror="thumbFallback(this)">';
         var actions =
-          (pdf ? '' : '<button type="button" onclick="rotateThumb(this)">Rotate ⟳</button>') +
+          (pdf ? '<button type="button" onclick="fullViewPdf(this)">Full view (zoom/magnify)</button>' : '<button type="button" onclick="rotateThumb(this)">Rotate ⟳</button>') +
           '<button type="button" onclick="dlThumb(this)">Download ⬇</button>';
         return '<div class="thumb" data-kind="' + kind + '" data-i="' + (idx + 1) + '" data-mime="' + mime + '"' +
                  (pdf ? ' data-pdf="1"' : '') + '>' +
@@ -2320,14 +2334,82 @@
     }
 
     // ---------- left: agreement ----------
+    // Extracts a Drive file id from a share URL, client-side (mirrors driveIdFromUrl_ in
+    // Code.gs). Used to build the fast googleusercontent/preview URLs below.
+    function driveIdFromUrlClient_(url) {
+      var m = String(url || '').match(/[-\w]{25,}/);
+      return m ? m[0] : '';
+    }
+    var agreementRef = null;   // last-loaded {url, mime} — "Full view" re-uses it
     function loadAgreement(flat) {
       var body = document.getElementById('agreeBody');
       body.innerHTML = loadingCard('Loading agreement…');
       setPannable(body, false);
       agreementPdfDoc = null;
-      callServer('getFlatAgreementDoc', { flat: flat })
-        .then(function (ag) { renderAgreement(ag); })
+      // Just the ref (URL + mime, no bytes) — rendered straight from Drive (see
+      // renderAgreementRef), no Apps Script round-trip needed to view it.
+      callServer('getFlatAgreementRef', { flat: flat })
+        .then(function (ref) { renderAgreementRef(ref); })
         .catch(function (e) { setPannable(body, false); body.innerHTML = '<div class="err" style="padding:12px">' + esc(e && e.message ? e.message : 'Failed to load agreement.') + '</div>'; });
+    }
+
+    // Fast path: an image renders via the same direct Drive URL trick the Aadhaar/ID scans
+    // use; a PDF renders via Drive's own iframe preview. Neither touches Apps Script. "Full
+    // view" (fullViewAgreement) swaps a PDF for the precise pdf.js/canvas render — the one
+    // thing a cross-origin iframe can't support (shift-drag magnify, the pane's zoom controls).
+    function renderAgreementRef(ref) {
+      var body = document.getElementById('agreeBody');
+      var hint = document.getElementById('agreeHint');
+      agreementRef = (ref && ref.url) ? ref : null;
+      if (!agreementRef) {
+        hint.textContent = '';
+        setPannable(body, false);
+        body.innerHTML = '<div class="uploadprompt">No agreement uploaded for this flat.' +
+          '<br><label class="btn" for="agreeFile">Upload agreement</label></div>';
+        return;
+      }
+      var isPdf = (ref.mime || '').indexOf('pdf') >= 0 || /\.pdf(\?|$)/i.test(ref.url || '');
+      var id = driveIdFromUrlClient_(ref.url);
+      if (!isPdf) {
+        hint.textContent = 'image';
+        body.innerHTML = '<div class="thumb"><img src="' + (id ? dispUrl(id) : esc(ref.url)) + '" onerror="thumbFallbackAgreement(this)"></div>';
+        applyPaneZoom('L');
+        setPannable(body, true);
+        return;
+      }
+      hint.textContent = 'PDF';
+      setPannable(body, false);
+      if (!id) {
+        body.innerHTML = '<div class="uploadprompt">Agreement is a PDF. <a href="' + esc(ref.url) + '" target="_blank">Open it</a></div>';
+        return;
+      }
+      body.innerHTML = '<div class="thumb">' + pdfPreviewHtml(id) +
+        '<div class="cap"><a href="#" onclick="fullViewAgreement();return false;">Full view (zoom / magnify)</a> · ' +
+        '<a href="' + esc(ref.url) + '" target="_blank" rel="noopener">Open in Drive</a></div></div>';
+    }
+
+    // If the fast Drive <img> URL fails to load, fall back to fetching the bytes (same
+    // pattern as thumbFallback for Aadhaar/ID images).
+    function thumbFallbackAgreement(img) {
+      img.onerror = null;
+      if (!agreementRef || !agreementRef.url) return;
+      ensureBytes({ url: agreementRef.url, mime: agreementRef.mime }).then(function (im) {
+        img.src = 'data:' + (im.mime || 'image/jpeg') + ';base64,' + im.base64;
+      }).catch(function () {});
+    }
+
+    // "Full view": pulls the agreement's actual bytes (chunked) and renders it with pdf.js,
+    // same as before this page had a fast default — only needed for magnify/zoom precision.
+    function fullViewAgreement() {
+      if (!agreementRef || !agreementRef.url) return;
+      var body = document.getElementById('agreeBody');
+      body.innerHTML = loadingCard('Rendering full agreement…');
+      ensureBytes({ url: agreementRef.url, mime: agreementRef.mime }).then(function (im) {
+        renderAgreement({ url: agreementRef.url, mime: im.mime, base64: im.base64 });
+      }).catch(function (e) {
+        setPannable(body, false);
+        body.innerHTML = '<div class="err" style="padding:12px">' + esc(e && e.message ? e.message : 'Failed to load agreement.') + '</div>';
+      });
     }
 
     function renderAgreement(ag) {
