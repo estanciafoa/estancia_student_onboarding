@@ -2137,12 +2137,31 @@
         pdfChain = pdfChain.then(function () {
           return ensureBytes(im)
             .then(function () { renderPdfThumbs(slot, im.base64); })
-            .catch(function () { slot.innerHTML = '<div class="err" style="padding:10px">Could not load PDF.</div>'; });
+            .catch(function (e) {
+              var msg = (e && e.message) ? e.message : 'Could not load PDF.';
+              slot.innerHTML = '<div class="err" style="padding:10px">' + esc(msg) + ' <a href="#" onclick="retryPdfThumb(this,\'' +
+                w.getAttribute('data-kind') + '\',' + w.getAttribute('data-i') + ');return false;">Retry</a></div>';
+            });
         });
       });
       setPannable(body, !!((d.aadhar && d.aadhar.length) || (d.college && d.college.length)));
       renderPhoto();   // docs now include the photo bytes → refresh the photo section
       renderSign();    // …and the resident's signature image
+    }
+
+    // Manually retry one PDF thumb after a failed load (see the "Retry" link paintDocs adds).
+    function retryPdfThumb(a, kind, i) {
+      var w = a.closest('.thumb'); if (!w) return;
+      var slot = w.querySelector('.pdf-slot'); if (!slot) return;
+      var im = docItemFor(kind, i); if (!im) return;
+      im.base64 = null;   // discard whatever partial/failed bytes may be cached, force a re-fetch
+      slot.innerHTML = '<div class="ph-load"><span class="ph-spin"></span><span>Rendering PDF…</span></div>';
+      ensureBytes(im)
+        .then(function () { renderPdfThumbs(slot, im.base64); })
+        .catch(function (e) {
+          var msg = (e && e.message) ? e.message : 'Could not load PDF.';
+          slot.innerHTML = '<div class="err" style="padding:10px">' + esc(msg) + ' <a href="#" onclick="retryPdfThumb(this,\'' + kind + '\',' + i + ');return false;">Retry</a></div>';
+        });
     }
 
     // Public display URL for a Drive file (renders in <img> for anyone-with-link files).
