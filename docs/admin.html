@@ -1023,6 +1023,13 @@
 
     // text/plain body keeps this a CORS "simple request" (no preflight — Apps Script can't
     // answer OPTIONS). The deployed web app must allow access by "Anyone".
+    //
+    // Retries once on ANY failure — a rejected fetch() (e.g. a CORS error with no
+    // Access-Control-Allow-Origin header) as well as a 200 response that isn't valid JSON.
+    // Both usually mean the same thing for an Apps Script web app: that particular execution
+    // didn't finish normally (hit its time/size/quota limit) and Google's infrastructure
+    // served its own error page instead of the doPost response — which carries neither valid
+    // JSON nor CORS headers. One retry clears most of these transient hits.
     function apiCall(action, payload, _retried) {
       payload = payload || {};
       return fetch(API.url, {
@@ -1033,19 +1040,23 @@
       }).then(function (r) { return r.text(); }).then(function (text) {
         var j;
         try { j = JSON.parse(text); }
-        catch (e) {
-          // Apps Script occasionally answers with its own HTML error page (e.g. a brief
-          // concurrent-execution limit) instead of running doPost, which shows up here as
-          // invalid JSON. One retry clears most of these; twice in a row means it's a real
-          // deployment/access problem, not a blip.
-          if (!_retried) {
-            return new Promise(function (resolve) { setTimeout(resolve, 700); })
-              .then(function () { return apiCall(action, payload, true); });
-          }
-          throw new Error('Server returned an unexpected response (not JSON) — check the Apps Script deployment is live and set to "Anyone" access.');
-        }
+        catch (e) { throw new Error('Server returned an unexpected response (not JSON).'); }
         if (!j || j.ok === false) throw new Error((j && j.error) || 'Request failed.');
         return j.result;
+      }).catch(function (err) {
+        // A genuine "Request failed" / "File not found." etc. from a successful JSON response
+        // is a real error — don't retry those, just the "didn't get a normal response at all"
+        // cases above (bad JSON) and fetch() itself rejecting (CORS / network).
+        var isRealError = err && err.message && !/unexpected response|not JSON/i.test(err.message) &&
+          !(err instanceof TypeError);
+        if (isRealError || _retried) {
+          if (_retried && !isRealError) {
+            throw new Error('Server did not respond normally after a retry — check the Apps Script deployment is live and set to "Anyone" access, and that this action isn\'t timing out on a large file.');
+          }
+          throw err;
+        }
+        return new Promise(function (resolve) { setTimeout(resolve, 700); })
+          .then(function () { return apiCall(action, payload, true); });
       });
     }
 
@@ -1056,6 +1067,8 @@
       getFlatAgreementDoc: function (p) { return [p.flat]; },
       getCompareDocs: function (p) { return [p.studentId, p.knownFields]; },
       getDocBytes: function (p) { return [p.fileId]; },
+      getDocBytesInfo: function (p) { return [p.fileId]; },
+      getDocBytesChunk: function (p) { return [p.fileId, p.chunkIndex]; },
       getFlatsOverview: function () { return []; },
       generateAnnexurePdf: function (p) { return [p.flat]; },
       emailOwnerDraft: function (p) { return [p.flat]; },
@@ -2137,16 +2150,22 @@
         pdfChain = pdfChain.then(function () {
           return ensureBytes(im)
             .then(function () { renderPdfThumbs(slot, im.base64); })
-            .catch(function (e) {
-              var msg = (e && e.message) ? e.message : 'Could not load PDF.';
-              slot.innerHTML = '<div class="err" style="padding:10px">' + esc(msg) + ' <a href="#" onclick="retryPdfThumb(this,\'' +
-                w.getAttribute('data-kind') + '\',' + w.getAttribute('data-i') + ');return false;">Retry</a></div>';
-            });
+            .catch(function (e) { slot.innerHTML = pdfFailHtml(e, w.getAttribute('data-kind'), w.getAttribute('data-i'), im.url); });
         });
       });
       setPannable(body, !!((d.aadhar && d.aadhar.length) || (d.college && d.college.length)));
       renderPhoto();   // docs now include the photo bytes → refresh the photo section
       renderSign();    // …and the resident's signature image
+    }
+
+    // Failed-PDF-thumb markup: real error message + Retry + a direct Drive link so the file
+    // is still viewable (fetching the whole PDF's bytes through Apps Script in one response
+    // is the thing that's failing — opening it straight from Drive sidesteps that entirely).
+    function pdfFailHtml(e, kind, i, url) {
+      var msg = (e && e.message) ? e.message : 'Could not load PDF.';
+      var openLink = url ? ' · <a href="' + esc(url) + '" target="_blank" rel="noopener">Open in Drive</a>' : '';
+      return '<div class="err" style="padding:10px">' + esc(msg) +
+             ' <a href="#" onclick="retryPdfThumb(this,\'' + kind + '\',' + i + ');return false;">Retry</a>' + openLink + '</div>';
     }
 
     // Manually retry one PDF thumb after a failed load (see the "Retry" link paintDocs adds).
@@ -2158,21 +2177,37 @@
       slot.innerHTML = '<div class="ph-load"><span class="ph-spin"></span><span>Rendering PDF…</span></div>';
       ensureBytes(im)
         .then(function () { renderPdfThumbs(slot, im.base64); })
-        .catch(function (e) {
-          var msg = (e && e.message) ? e.message : 'Could not load PDF.';
-          slot.innerHTML = '<div class="err" style="padding:10px">' + esc(msg) + ' <a href="#" onclick="retryPdfThumb(this,\'' + kind + '\',' + i + ');return false;">Retry</a></div>';
-        });
+        .catch(function (e) { slot.innerHTML = pdfFailHtml(e, kind, i, im.url); });
     }
 
     // Public display URL for a Drive file (renders in <img> for anyone-with-link files).
     function dispUrl(id) { return 'https://lh3.googleusercontent.com/d/' + id + '=w1600'; }
-    // Ensure a doc ref has its bytes (base64). Fetched once from Drive, then cached on the object.
+    // Ensure a doc ref has its bytes (base64). Fetched once from Drive, then cached on the
+    // object. Pulled in bounded chunks, one call at a time, rather than one big request —
+    // a large scanned PDF's whole base64 in a single Apps Script response was slow/heavy
+    // enough to occasionally exceed its execution or response limits (surfacing in the
+    // browser as a bare CORS failure rather than a normal error).
     function ensureBytes(im) {
       if (!im) return Promise.reject(new Error('No image.'));
       if (im.base64) return Promise.resolve(im);
-      return callServer('getDocBytes', { fileId: im.id || im.url }).then(function (r) {
-        im.base64 = r.base64; im.mime = r.mime || im.mime || 'image/jpeg';
-        return im;
+      var fileId = im.id || im.url;
+      return callServer('getDocBytesInfo', { fileId: fileId }).then(function (info) {
+        var parts = [];
+        var chain = Promise.resolve();
+        for (var c = 0; c < info.chunks; c++) {
+          (function (chunkIndex) {
+            chain = chain.then(function () {
+              return callServer('getDocBytesChunk', { fileId: fileId, chunkIndex: chunkIndex }).then(function (r) {
+                parts.push(r.base64 || '');
+              });
+            });
+          })(c);
+        }
+        return chain.then(function () {
+          im.base64 = parts.join('');
+          im.mime = info.mime || im.mime || 'image/jpeg';
+          return im;
+        });
       });
     }
     // If the fast Drive display URL fails to load, fall back to fetching the bytes.

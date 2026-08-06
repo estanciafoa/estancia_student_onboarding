@@ -126,6 +126,8 @@ function doPost(e) {
       case 'getLogo':                result = getLogo(); break;
       case 'getCompareDocs':         result = getCompareDocs(payload.studentId, payload.knownFields); break;
       case 'getDocBytes':            result = getDocBytes(payload.fileId || (body && body.fileId)); break;
+      case 'getDocBytesInfo':        result = getDocBytesInfo(payload.fileId); break;
+      case 'getDocBytesChunk':       result = getDocBytesChunk(payload.fileId, payload.chunkIndex); break;
       case 'getFlatsOverview':       result = getFlatsOverview(); break;
       case 'getFlatAgreementDoc':    result = getFlatAgreementDoc(body.flat || payload.flat); break;
       case 'saveStudentDetails':     result = saveStudentDetails(payload.studentId, payload.fields); break;
@@ -758,10 +760,46 @@ function getCompareDocs(studentId, knownFields) {
 // Web admin: fetch one Drive file's bytes on demand (base64 + mime). Keeps the initial
 // getCompareDocs response light — heavy ID scans are sent as refs and pulled only when the
 // page needs the real bytes (rotate, download, PDF rendering).
+// Kept for backward compatibility; the admin page now uses the chunked pair below for
+// anything that might be large (multi-page scanned PDFs) — see getDocBytesInfo/Chunk.
 function getDocBytes(fileId) {
   const b = driveBlobFromUrl_(fileId);
   if (!b) throw new Error('File not found.');
   return { base64: Utilities.base64Encode(b.getBytes()), mime: b.getContentType() || 'image/jpeg' };
+}
+
+// Raw bytes per chunk for getDocBytesChunk — a multiple of 3 so each chunk's base64 needs no
+// padding except possibly the last, and slices concatenate into valid base64 directly.
+const DOC_CHUNK_BYTES = 750000;   // 750KB raw (~1MB base64) per response
+
+// Cheap metadata call (file size via Drive metadata, not a blob read) so the page knows how
+// many chunks to request before pulling any bytes.
+function getDocBytesInfo(fileId) {
+  const f = driveFileFromUrl_(fileId);
+  if (!f) throw new Error('File not found.');
+  const size = f.getSize();
+  return {
+    mime: f.getMimeType() || 'image/jpeg',
+    size: size,
+    chunkBytes: DOC_CHUNK_BYTES,
+    chunks: Math.max(1, Math.ceil(size / DOC_CHUNK_BYTES))
+  };
+}
+
+// One bounded slice of a file's bytes, base64-encoded. Chunking a large file's transfer this
+// way keeps every single Apps Script response small — shipping a whole multi-MB scanned PDF's
+// base64 in one doPost response was slow/heavy enough to occasionally exceed Apps Script's
+// execution or response limits, which the browser then reports as a bare CORS failure (no
+// Access-Control-Allow-Origin header) rather than a normal error, because the response never
+// came from our own doPost code at all — Google's infrastructure served an error page instead.
+function getDocBytesChunk(fileId, chunkIndex) {
+  const b = driveBlobFromUrl_(fileId);
+  if (!b) throw new Error('File not found.');
+  const bytes = b.getBytes();
+  const start = Math.max(0, Number(chunkIndex) || 0) * DOC_CHUNK_BYTES;
+  if (start >= bytes.length) return { base64: '', done: true };
+  const end = Math.min(bytes.length, start + DOC_CHUNK_BYTES);
+  return { base64: Utilities.base64Encode(bytes.slice(start, end)), done: end >= bytes.length };
 }
 
 // Web admin: replace one of a student's Aadhaar / College-ID images with a rotated copy.
