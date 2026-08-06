@@ -1023,14 +1023,27 @@
 
     // text/plain body keeps this a CORS "simple request" (no preflight — Apps Script can't
     // answer OPTIONS). The deployed web app must allow access by "Anyone".
-    function apiCall(action, payload) {
+    function apiCall(action, payload, _retried) {
       payload = payload || {};
       return fetch(API.url, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify({ token: API.token, action: action, flat: payload.flat, payload: payload }),
         redirect: 'follow'
-      }).then(function (r) { return r.json(); }).then(function (j) {
+      }).then(function (r) { return r.text(); }).then(function (text) {
+        var j;
+        try { j = JSON.parse(text); }
+        catch (e) {
+          // Apps Script occasionally answers with its own HTML error page (e.g. a brief
+          // concurrent-execution limit) instead of running doPost, which shows up here as
+          // invalid JSON. One retry clears most of these; twice in a row means it's a real
+          // deployment/access problem, not a blip.
+          if (!_retried) {
+            return new Promise(function (resolve) { setTimeout(resolve, 700); })
+              .then(function () { return apiCall(action, payload, true); });
+          }
+          throw new Error('Server returned an unexpected response (not JSON) — check the Apps Script deployment is live and set to "Anyone" access.');
+        }
         if (!j || j.ok === false) throw new Error((j && j.error) || 'Request failed.');
         return j.result;
       });
@@ -2112,13 +2125,20 @@
       html += imagesHtml(d.college, 'No College/Company ID image on file.', 'collegeid');
       body.innerHTML = html || '<div class="empty">No documents.</div>';
       applyPaneZoom('R');
-      // Any Aadhaar / ID uploaded as a PDF renders into its slot with pdf.js.
+      // Any Aadhaar / ID uploaded as a PDF renders into its slot with pdf.js. Fetched one at a
+      // time (chained), not all at once — firing several getDocBytes calls at Apps Script in
+      // parallel can exceed its concurrent-execution limit, which comes back as an HTML error
+      // page instead of JSON ("Unexpected token '<'…") rather than a normal failed request.
+      var pdfChain = Promise.resolve();
       Array.prototype.forEach.call(body.querySelectorAll('.thumb[data-pdf]'), function (w) {
         var im = docItemFor(w.getAttribute('data-kind'), w.getAttribute('data-i'));
         var slot = w.querySelector('.pdf-slot');
-        if (im && slot) ensureBytes(im)
-          .then(function () { renderPdfThumbs(slot, im.base64); })
-          .catch(function () { slot.innerHTML = '<div class="err" style="padding:10px">Could not load PDF.</div>'; });
+        if (!im || !slot) return;
+        pdfChain = pdfChain.then(function () {
+          return ensureBytes(im)
+            .then(function () { renderPdfThumbs(slot, im.base64); })
+            .catch(function () { slot.innerHTML = '<div class="err" style="padding:10px">Could not load PDF.</div>'; });
+        });
       });
       setPannable(body, !!((d.aadhar && d.aadhar.length) || (d.college && d.college.length)));
       renderPhoto();   // docs now include the photo bytes → refresh the photo section
