@@ -397,7 +397,7 @@
 <body>
   <div class="brandbar">
     <img id="brandLogo" class="logo" alt="Estancia">
-    <div class="title">Estancia Student Onboarding</div>
+    <div class="title" id="brandTitle">Estancia Student Onboarding</div>
     <span class="spacer"></span>
     <button id="settingsBtn" class="themebtn" onclick="openSettings()" title="API connection" style="display:none">⚙</button>
     <button id="themeBtn" class="themebtn" onclick="toggleTheme()" title="Toggle light / dark">🌙</button>
@@ -629,6 +629,12 @@
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script>
+    // Bumped by hand on every edit to this file — logged immediately (before anything else
+    // can throw) so checking the console tells you whether the browser actually has the
+    // latest admin.html, vs. an old cached copy GitHub Pages already moved past.
+    var ADMIN_BUILD = '2026-08-06 fast-pdf-preview';
+    console.log('[admin] build: ' + ADMIN_BUILD);
+
     if (window.pdfjsLib) {
       pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
     }
@@ -650,6 +656,8 @@
     var _floatSaveTimer = null;
 
     document.addEventListener('DOMContentLoaded', function () {
+      var bt = document.getElementById('brandTitle');
+      if (bt) bt.title = 'build: ' + ADMIN_BUILD;   // hover the header to check without DevTools
       applyTheme(getSavedTheme());
       API.load();
       if (!gas()) {                                  // standalone (GitHub-hosted) mode
