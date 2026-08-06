@@ -124,7 +124,7 @@ function doPost(e) {
       case 'generateAnnexurePdf':    result = generateAnnexurePdf(body.flat || (payload && payload.flat)); break;
       // Admin web-page actions (also callable via google.script.run when embedded).
       case 'getLogo':                result = getLogo(); break;
-      case 'getCompareDocs':         result = getCompareDocs(payload.studentId); break;
+      case 'getCompareDocs':         result = getCompareDocs(payload.studentId, payload.knownFields); break;
       case 'getDocBytes':            result = getDocBytes(payload.fileId || (body && body.fileId)); break;
       case 'getFlatsOverview':       result = getFlatsOverview(); break;
       case 'getFlatAgreementDoc':    result = getFlatAgreementDoc(body.flat || payload.flat); break;
@@ -199,20 +199,6 @@ function ensureStudentColumns_() {
   const missing = STUDENTS_HEADER.filter(h => header.indexOf(h) === -1);
   if (!missing.length) return;
 
-  sh.getRange(1, header.length + 1, 1, missing.length).setValues([missing]);
-}
-
-// Same migration for the Flats sheet — appends any FLATS_HEADER column that an older
-// sheet is missing (e.g. TenancyPeriod / AgreementDate added later), so those values
-// can actually be stored and read.
-function ensureFlatColumns_() {
-  const ss = getSpreadsheet_();
-  const sh = ss.getSheetByName(SHEET_FLATS);
-  if (!sh) return;
-  const lastCol = Math.max(1, sh.getLastColumn());
-  const header = sh.getRange(1, 1, 1, lastCol).getValues()[0];
-  const missing = FLATS_HEADER.filter(h => header.indexOf(h) === -1);
-  if (!missing.length) return;
   sh.getRange(1, header.length + 1, 1, missing.length).setValues([missing]);
 }
 
@@ -408,13 +394,21 @@ function studentsSheetAndHeader_() {
   const ss = getSpreadsheet_();
   // Auto-create the Students sheet (and its header) on first use so submissions
   // never fail just because setupSheets() hasn't been run yet.
-  if (!ss.getSheetByName(SHEET_STUDENTS)) {
-    ss.insertSheet(SHEET_STUDENTS).appendRow(STUDENTS_HEADER.slice());
+  let sh = ss.getSheetByName(SHEET_STUDENTS);
+  if (!sh) {
+    sh = ss.insertSheet(SHEET_STUDENTS);
+    sh.appendRow(STUDENTS_HEADER.slice());
   }
-  ensureStudentColumns_();
-  const sh = ss.getSheetByName(SHEET_STUDENTS);
   const lastCol = Math.max(1, sh.getLastColumn());
-  const header = sh.getRange(1, 1, 1, lastCol).getValues()[0];
+  let header = sh.getRange(1, 1, 1, lastCol).getValues()[0];
+  // Migrate in place: append any column STUDENTS_HEADER expects but this sheet lacks.
+  // Reuses the header row just read above instead of re-reading it (ensureStudentColumns_
+  // used to do its own separate read here, doubling this call's Sheets API round trips).
+  const missing = STUDENTS_HEADER.filter(h => header.indexOf(h) === -1);
+  if (missing.length) {
+    sh.getRange(1, header.length + 1, 1, missing.length).setValues([missing]);
+    header = header.concat(missing);
+  }
   return { sheet: sh, header: header };
 }
 
@@ -561,10 +555,13 @@ function getFlatForReview(flat) {
       return o;
     });
 
+  // agreementUrl is intentionally omitted: the admin page never reads it here — it always
+  // follows up with its own getFlatAgreementDoc call, which looks the URL up itself. Computing
+  // it a second time cost a full Drive folder search + file scan on every "Load flat" for
+  // nothing.
   return {
     students: students,
-    flat: getFlatRow_(flat),
-    agreementUrl: getFlatAgreementUrl_(flat)
+    flat: getFlatRow_(flat)
   };
 }
 
@@ -703,15 +700,27 @@ function getDocsForVerify_(studentId) {
 // and College-ID images (base64, so they render in the browser without Drive auth),
 // and the flat's agreement (base64 if an image; URL + mime for a PDF so the page can
 // embed a Drive preview). Public (no underscore) so google.script.run can call it.
-function getCompareDocs(studentId) {
+//
+// `knownFields` is an optional shortcut: the admin page already has this exact row (all
+// Students-sheet columns) from its earlier getFlatForReview call, one per student tab it
+// renders. Without this, every single tab render re-scans the ENTIRE Students sheet
+// (findStudentRowById_ does a full getDataRange().getValues()) just to re-find one row it
+// already had — cost that grows with the total roster across every flat, not just this one.
+// When knownFields is supplied we skip that scan and read straight from it; the only fresh
+// server work left is the actual Drive blob/metadata fetches below, which can't be skipped.
+function getCompareDocs(studentId, knownFields) {
   studentId = String(studentId || '').trim();
   if (!studentId) throw new Error('studentId is required.');
 
-  const found = findStudentRowById_(studentId);
-  if (!found) throw new Error('Student not found: ' + studentId);
-
-  const header = found.header, row = found.row;
-  const get = (h) => String(row[header.indexOf(h)] || '').trim();
+  var get;
+  if (knownFields && typeof knownFields === 'object' && String(knownFields.StudentId || '').trim() === studentId) {
+    get = (h) => String(knownFields[h] == null ? '' : knownFields[h]).trim();
+  } else {
+    const found = findStudentRowById_(studentId);
+    if (!found) throw new Error('Student not found: ' + studentId);
+    const header = found.header, row = found.row;
+    get = (h) => String(row[header.indexOf(h)] || '').trim();
+  }
   const urls = (v) => v.split(/\s*,\s*/).filter(Boolean);
   // Small, always-shown images ship inline (base64): photo + signature feed the photo pane,
   // signature pane, ID card and crop editor immediately.
@@ -995,6 +1004,7 @@ function uploadAgreement_(payload) {
     finalName
   );
   const fileUrl = saveFileInFolder_(folder, finalName, blob);
+  CacheService.getScriptCache().remove(flatAgreementCacheKey_(flat));
 
   return { ok: true, fileUrl: fileUrl, isImage: String(payload.mimeType || '').indexOf('image') === 0 };
 }
@@ -1036,9 +1046,15 @@ function getFlatRow_(flat) {
   const ss = getSpreadsheet_();
   const sh = ss.getSheetByName(SHEET_FLATS);
   if (!sh) return {};
-  ensureFlatColumns_();
   const data = sh.getDataRange().getValues();
-  const header = data.shift();
+  let header = data.shift();
+  // Migrate in place from the header already read above — avoids a second Sheets round trip
+  // to re-read it (see studentsSheetAndHeader_ for the same pattern on the Students sheet).
+  const missing = FLATS_HEADER.filter(h => header.indexOf(h) === -1);
+  if (missing.length) {
+    sh.getRange(1, header.length + 1, 1, missing.length).setValues([missing]);
+    header = header.concat(missing);
+  }
   const iFlat = header.indexOf('Flat#');
   for (let i = 0; i < data.length; i++) {
     if (String(data[i][iFlat]).trim() === String(flat).trim()) {
@@ -1059,10 +1075,14 @@ function upsertFlatRow_(flat, fields) {
     sh = ss.insertSheet(SHEET_FLATS);
     sh.appendRow(FLATS_HEADER.slice());
   }
-  ensureFlatColumns_();
-
   const data = sh.getDataRange().getValues();
-  const header = data[0];
+  let header = data[0];
+  const missingCols = FLATS_HEADER.filter(h => header.indexOf(h) === -1);
+  if (missingCols.length) {
+    sh.getRange(1, header.length + 1, 1, missingCols.length).setValues([missingCols]);
+    header = header.concat(missingCols);
+    data[0] = header;
+  }
   const iFlat = header.indexOf('Flat#');
 
   let rowNumber = -1;
@@ -1071,6 +1091,9 @@ function upsertFlatRow_(flat, fields) {
     if (String(data[i][iFlat]) === String(flat)) {
       rowNumber = i + 1;
       row = data[i].slice();
+      // A row saved before a column migration is shorter than the (possibly just-extended)
+      // header — pad it so header.forEach(...) below can't index past the end.
+      while (row.length < header.length) row.push('');
       break;
     }
   }
@@ -1948,15 +1971,29 @@ function saveJsonInFolder_(folder, fileName, obj) {
   folder.createFile(blob);
 }
 
+// Cached briefly: this does a Drive folder-by-name search plus a file-list scan, and the
+// admin page's "Load flat" flow calls it (directly or via getFlatAgreementDoc /
+// getDocsForVerify_) more than once per load. The agreement rarely changes, so a short TTL
+// is enough to collapse those into one Drive round trip without serving stale data for long.
+// Invalidated immediately on upload (see uploadAgreement_) rather than relying on the TTL.
+function flatAgreementCacheKey_(flatNumber) { return 'agUrl:' + String(flatNumber || '').trim(); }
 function getFlatAgreementUrl_(flatNumber) {
+  const cache = CacheService.getScriptCache();
+  const key = flatAgreementCacheKey_(flatNumber);
+  const cached = cache.get(key);
+  if (cached !== null) return cached === ' ' ? '' : cached;
+
   const folder = getFlatFolder_(flatNumber);
-  if (!folder) return '';
-  const files = folder.getFiles();
-  while (files.hasNext()) {
-    const f = files.next();
-    if (f.getName().indexOf('agreement.') === 0) return f.getUrl();
+  let url = '';
+  if (folder) {
+    const files = folder.getFiles();
+    while (files.hasNext()) {
+      const f = files.next();
+      if (f.getName().indexOf('agreement.') === 0) { url = f.getUrl(); break; }
+    }
   }
-  return '';
+  cache.put(key, url === '' ? ' ' : url, 60);   // 60s TTL; ' ' marks a cached "none"
+  return url;
 }
 
 function getFlatAgreementInfo_(flatNumber) {

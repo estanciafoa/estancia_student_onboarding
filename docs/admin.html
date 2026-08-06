@@ -1041,7 +1041,7 @@
       getLogo: function () { return []; },
       getFlatForReview: function (p) { return [p.flat]; },
       getFlatAgreementDoc: function (p) { return [p.flat]; },
-      getCompareDocs: function (p) { return [p.studentId]; },
+      getCompareDocs: function (p) { return [p.studentId, p.knownFields]; },
       getDocBytes: function (p) { return [p.fileId]; },
       getFlatsOverview: function () { return []; },
       generateAnnexurePdf: function (p) { return [p.flat]; },
@@ -1392,7 +1392,7 @@
       students.forEach(function (s) {
         chain = chain.then(function () {
           var get = s._docs ? Promise.resolve(s._docs)
-            : callServer('getCompareDocs', { studentId: s.StudentId }).then(function (d) { s._docs = d || {}; return s._docs; });
+            : callServer('getCompareDocs', { studentId: s.StudentId, knownFields: s }).then(function (d) { s._docs = d || {}; return s._docs; });
           return get.then(function (d) {
             var ph = d && (d.photo || d.selfPhoto);   // admin capture, else resident's upload
             if (ph && ph.base64) {
@@ -2093,7 +2093,7 @@
         '<div class="docgroup">Aadhaar</div>' + loadingCard('Loading Aadhaar…') +
         '<div class="docgroup" style="margin-top:14px">College / Company ID</div>' + loadingCard('Loading ID…');
       setPannable(body, false);
-      callServer('getCompareDocs', { studentId: s.StudentId })
+      callServer('getCompareDocs', { studentId: s.StudentId, knownFields: s })
         .then(function (d) { s._docs = d || {}; s._docsLoading = false; if (students[activeTab] === s) paintDocs(s._docs); })
         .catch(function (e) {
           s._docsLoading = false;
