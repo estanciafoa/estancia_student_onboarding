@@ -662,11 +662,15 @@
   <div id="lightbox" onclick="closeLightbox()"><span class="x">&times;</span><div id="lightboxInner"></div></div>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <!-- pdf-lib: PDF *writing*, unlike pdf.js which only reads/renders. Used solely by the
+       Compress folder tool to rebuild a smaller PDF from compressed page images — nothing
+       else on this page produces PDF bytes. -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
   <script>
     // Bumped by hand on every edit to this file — logged immediately (before anything else
     // can throw) so checking the console tells you whether the browser actually has the
     // latest admin.html, vs. an old cached copy GitHub Pages already moved past.
-    var ADMIN_BUILD = '2026-08-06 fast-pdf-preview';
+    var ADMIN_BUILD = '2026-08-07 compress-pdf-in-place';
     console.log('[admin] build: ' + ADMIN_BUILD);
 
     if (window.pdfjsLib) {
@@ -1632,8 +1636,34 @@
         .then(function (r) {
           cfFiles = (r && r.files) || [];
           cfFolderName = (r && r.folderName) || folderId;
-          if (!cfFiles.length) { setCfStatus('No images found directly inside "' + cfFolderName + '".', false); return; }
-          setCfStatus(cfFiles.length + ' image(s) found in "' + cfFolderName + '". Run Preview before Compress & overwrite.', true);
+          var skipped = (r && r.skipped) || [];
+          var subfolders = (r && r.subfolders) || 0;
+          var alreadySmall = (r && r.alreadySmall) || 0;
+          // Only files directly in this folder are ever considered (Drive doesn't recurse into
+          // subfolders here); only images and PDFs can be compressed this way — everything else
+          // gets reported here instead of just silently not showing up; and anything already at
+          // or under the ~50KB floor is left out of the listing entirely (nothing to gain).
+          var note = '';
+          if (skipped.length) {
+            note += '<details style="margin-top:6px"><summary>' + skipped.length + ' file(s) skipped (not image/PDF)</summary>' +
+              '<ul style="margin:6px 0 0;padding-left:18px">' +
+              skipped.map(function (s) { return '<li>' + esc(s.name) + ' — ' + esc(s.mime) + '</li>'; }).join('') +
+              '</ul></details>';
+          }
+          if (subfolders) {
+            note += '<div class="err" style="margin-top:6px">' + subfolders + ' subfolder(s) in "' + esc(cfFolderName) +
+              '" were NOT scanned — this tool only looks at files directly in the folder you give it, not nested ones.</div>';
+          }
+          document.getElementById('cfResults').innerHTML = note;
+          if (!cfFiles.length) {
+            setCfStatus('No files to compress directly inside "' + cfFolderName + '"' +
+              (alreadySmall ? (' (' + alreadySmall + ' already under 50KB).') : '.'), false);
+            return;
+          }
+          setCfStatus(cfFiles.length + ' file(s) found in "' + cfFolderName + '"' +
+            (alreadySmall ? (', ' + alreadySmall + ' already under 50KB (not listed)') : '') +
+            (skipped.length ? (', ' + skipped.length + ' other file(s) skipped (see below)') : '') +
+            '. Run Preview before Compress & overwrite.', true);
           renderCfTable();
           document.getElementById('cfPreviewBtn').disabled = false;
           document.getElementById('cfApplyBtn').disabled = false;
@@ -1642,18 +1672,20 @@
     }
 
     function renderCfTable() {
-      document.getElementById('cfResults').innerHTML =
+      // Appended after scanCompressFolder's skipped-files/subfolder note, not replacing it.
+      document.getElementById('cfResults').insertAdjacentHTML('beforeend',
         '<table class="ovtable"><thead><tr>' +
           '<th><input type="checkbox" id="cfAll" checked onchange="toggleCfAll(this.checked)"></th>' +
           '<th>File</th><th>Current</th><th>New</th><th>Status</th>' +
         '</tr></thead><tbody>' +
         cfFiles.map(function (f, i) {
+          var icon = f.kind === 'pdf' ? '📄 ' : '🖼️ ';
           return '<tr>' +
                    '<td><input type="checkbox" id="cfChk' + i + '" checked></td>' +
-                   '<td>' + esc(f.name) + '</td><td class="num">' + fmtKB(f.size) + '</td>' +
+                   '<td>' + icon + esc(f.name) + '</td><td class="num">' + fmtKB(f.size) + '</td>' +
                    '<td class="num" id="cfNew' + i + '">—</td><td id="cfStat' + i + '">pending</td>' +
                  '</tr>';
-        }).join('') + '</tbody></table>';
+        }).join('') + '</tbody></table>');
     }
     function toggleCfAll(checked) {
       cfFiles.forEach(function (f, i) { var c = document.getElementById('cfChk' + i); if (c) c.checked = checked; });
@@ -1664,13 +1696,42 @@
       return out;
     }
 
-    // Opens the compressed result in the existing image lightbox (same one thumbnails use)
-    // so you can actually look at it — legibility, not just the byte count, is what matters
-    // for an ID document. Only available once Preview/Apply has produced a result for that row.
+    // Opens the compressed result in the existing lightbox so you can actually look at it —
+    // legibility, not just the byte count, is what matters for an ID document. Only available
+    // once Preview/Apply has produced a result for that row. A PDF result renders each page
+    // via pdf.js (an <img> tag can't display a PDF); anything else uses the plain image path.
     function viewCfResult(i) {
       var f = cfFiles[i];
       if (!f || !f._out) return;
-      zoomImg('data:' + f._out.mimeType + ';base64,' + f._out.base64);
+      if (f._out.mimeType !== 'application/pdf') {
+        zoomImg('data:' + f._out.mimeType + ';base64,' + f._out.base64);
+        return;
+      }
+      var inner = document.getElementById('lightboxInner');
+      inner.innerHTML = '<div style="color:#fff;padding:20px">Rendering…</div>';
+      document.getElementById('lightbox').style.display = 'flex';
+      pdfjsLib.getDocument({ data: base64ToBytes(f._out.base64) }).promise.then(function (pdf) {
+        inner.innerHTML = '';
+        var chain = Promise.resolve();
+        for (var p = 1; p <= pdf.numPages; p++) {
+          (function (pageNum) {
+            chain = chain.then(function () {
+              return pdf.getPage(pageNum).then(function (page) {
+                var viewport = page.getViewport({ scale: 1.5 });
+                var canvas = document.createElement('canvas');
+                canvas.width = viewport.width; canvas.height = viewport.height;
+                canvas.style.maxWidth = '90vw';
+                canvas.style.display = 'block';
+                canvas.style.marginBottom = '10px';
+                return page.render({ canvasContext: canvas.getContext('2d'), viewport: viewport }).promise.then(function () {
+                  inner.appendChild(canvas);
+                });
+              });
+            });
+          })(p);
+        }
+        return chain;
+      }).catch(function () { inner.innerHTML = '<div style="color:#fff;padding:20px">Could not render PDF.</div>'; });
     }
 
     function runCfPreview() { runCompressFolder(false); }
@@ -1702,7 +1763,10 @@
           var statEl = document.getElementById('cfStat' + i);
           statEl.textContent = 'working…';
           return ensureBytes({ id: f.id, mime: f.mime }).then(function (im) {
-            return compressToTarget(im.base64, im.mime, CF_MIN_KB, CF_MAX_KB);
+            var isPdf = (im.mime || '').indexOf('pdf') >= 0;
+            return isPdf
+              ? compressPdfToTarget(im.base64, CF_MIN_KB, CF_MAX_KB)
+              : compressToTarget(im.base64, im.mime, CF_MIN_KB, CF_MAX_KB);
           }).then(function (out) {
             f._out = out;   // kept for "View" — see viewCfResult
             document.getElementById('cfNew' + i).innerHTML =
@@ -1763,6 +1827,63 @@
         };
         img.onerror = function () { reject(new Error('Could not decode image.')); };
         img.src = 'data:' + (mime || 'image/jpeg') + ';base64,' + base64;
+      });
+    }
+
+    // Compresses a PDF while keeping it a PDF. pdf.js can only READ a PDF, not write one, so
+    // the only way to shrink one and still hand back a real PDF is: render every page to a
+    // JPEG, compress each toward [minKB, maxKB] — the same per-page target a standalone image
+    // gets, so a multi-page result scales with page count (a 5-page PDF lands ~5x a single
+    // image's size) rather than cramming the whole document into one image's budget — then
+    // rebuild a fresh PDF from those compressed pages with pdf-lib. Works for any page count;
+    // unlike converting to JPEG, nothing about the file (id, URL, name, type) needs to change.
+    function compressPdfToTarget(base64, minKB, maxKB) {
+      return pdfjsLib.getDocument({ data: base64ToBytes(base64) }).promise.then(function (pdf) {
+        var pages = [];
+        var chain = Promise.resolve();
+        for (var p = 1; p <= pdf.numPages; p++) {
+          (function (pageNum) {
+            chain = chain.then(function () {
+              return pdf.getPage(pageNum).then(function (page) {
+                var native = page.getViewport({ scale: 1 });   // page size in PDF points, at native scale
+                var scale = Math.min(2, PDF_COMPRESS_MAX_DIM / Math.max(native.width, native.height));
+                var viewport = page.getViewport({ scale: scale });
+                var canvas = document.createElement('canvas');
+                canvas.width = viewport.width; canvas.height = viewport.height;
+                var ctx = canvas.getContext('2d');
+                ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+                return page.render({ canvasContext: ctx, viewport: viewport }).promise.then(function () {
+                  var raw = canvas.toDataURL('image/jpeg', PDF_COMPRESS_QUALITY).split(',')[1];
+                  return compressToTarget(raw, 'image/jpeg', minKB, maxKB).then(function (out) {
+                    pages.push({ base64: out.base64, widthPt: native.width, heightPt: native.height });
+                  });
+                });
+              });
+            });
+          })(p);
+        }
+        return chain.then(function () { return buildPdfFromPages_(pages); });
+      });
+    }
+
+    // Assembles a new PDF from compressed page JPEGs — one full-page image per page, sized to
+    // that page's original point dimensions so the result reads at the same physical scale as
+    // the source — via pdf-lib (loaded as window.PDFLib; see the <script> tag near the top).
+    function buildPdfFromPages_(pages) {
+      if (!window.PDFLib) return Promise.reject(new Error('pdf-lib did not load — check your connection and reload the page.'));
+      return PDFLib.PDFDocument.create().then(function (doc) {
+        var chain = Promise.resolve();
+        pages.forEach(function (pg) {
+          chain = chain.then(function () {
+            return doc.embedJpg(pg.base64).then(function (img) {
+              var page = doc.addPage([pg.widthPt, pg.heightPt]);
+              page.drawImage(img, { x: 0, y: 0, width: pg.widthPt, height: pg.heightPt });
+            });
+          });
+        });
+        return chain.then(function () { return doc.saveAsBase64(); }).then(function (b64) {
+          return { base64: b64, mimeType: 'application/pdf', bytes: Math.floor(b64.length * 3 / 4) };
+        });
       });
     }
 

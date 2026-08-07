@@ -1948,20 +1948,45 @@ function testAgreementFromDrive(fileId) {
 // pipeline as the upload-time compression elsewhere in this file); these two functions only
 // list what's in a folder and, once the browser has produced smaller bytes, write them back.
 
-// Metadata only (id, name, mime, size) for every image directly inside a folder — no bytes,
-// so the admin page can show what a run would touch before anything is fetched or changed.
+// Files at/under this size aren't worth touching — it's the same floor compressToTarget aims
+// for client-side (CF_MIN_KB in admin.html), so anything already this small is presumably
+// already about as compact as this tool would ever make it.
+const CF_MIN_BYTES = 50 * 1024;
+
+// Metadata only (id, name, mime, size, kind) for every compressible file directly inside a
+// folder — no bytes, so the admin page can show what a run would touch before anything is
+// fetched or changed. "Compressible" means an image (any raster type) or a PDF — a PDF is
+// rebuilt page-by-page from compressed images and stays a PDF (see admin.html's
+// compressPdfToTarget), so page count doesn't matter and nothing about the file needs to
+// change (same id, URL, name, type), same as an image.
+//
+// Only files DIRECTLY in this folder are considered — Folder.getFiles() does not recurse into
+// subfolders — and only image/PDF types at all are compressible this way; everything else
+// (.txt, Google Docs, etc.) is reported back in `skipped` rather than silently dropped, and
+// `subfolders` flags whether nested folders might hold more. Files already at or under
+// CF_MIN_BYTES are excluded entirely (not even counted in `skipped`) — see `alreadySmall`.
 function listFolderImages(folderIdOrUrl) {
   const folder = driveFolderById_(folderIdOrUrl);
   if (!folder) throw new Error('Folder not found, or not accessible with this account.');
   const out = [];
+  const skipped = [];
+  let alreadySmall = 0;
   const files = folder.getFiles();
   while (files.hasNext()) {
     const f = files.next();
     const mime = f.getMimeType() || '';
-    if (mime.indexOf('image/') !== 0) continue;   // only raster images can go through this path
-    out.push({ id: f.getId(), name: f.getName(), mime: mime, size: f.getSize() });
+    const isImage = mime.indexOf('image/') === 0;
+    const isPdf = mime.indexOf('application/pdf') === 0;
+    if (!isImage && !isPdf) { skipped.push({ name: f.getName(), mime: mime || '(unknown)' }); continue; }
+    const size = f.getSize();
+    if (size < CF_MIN_BYTES) { alreadySmall++; continue; }
+    out.push({ id: f.getId(), name: f.getName(), mime: mime, size: size, kind: isPdf ? 'pdf' : 'image' });
   }
-  return { folderId: folder.getId(), folderName: folder.getName(), files: out };
+  let subfolders = 0;
+  const subs = folder.getFolders();
+  while (subs.hasNext()) { subs.next(); subfolders++; }
+  return { folderId: folder.getId(), folderName: folder.getName(), files: out, skipped: skipped,
+           alreadySmall: alreadySmall, subfolders: subfolders };
 }
 
 function driveFolderById_(folderIdOrUrl) {
