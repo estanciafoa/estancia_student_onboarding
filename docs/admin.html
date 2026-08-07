@@ -1643,16 +1643,41 @@
 
     function renderCfTable() {
       document.getElementById('cfResults').innerHTML =
-        '<table class="ovtable"><thead><tr><th>File</th><th>Current</th><th>New</th><th>Status</th></tr></thead><tbody>' +
+        '<table class="ovtable"><thead><tr>' +
+          '<th><input type="checkbox" id="cfAll" checked onchange="toggleCfAll(this.checked)"></th>' +
+          '<th>File</th><th>Current</th><th>New</th><th>Status</th>' +
+        '</tr></thead><tbody>' +
         cfFiles.map(function (f, i) {
-          return '<tr><td>' + esc(f.name) + '</td><td class="num">' + fmtKB(f.size) + '</td>' +
-                 '<td class="num" id="cfNew' + i + '">—</td><td id="cfStat' + i + '">pending</td></tr>';
+          return '<tr>' +
+                   '<td><input type="checkbox" id="cfChk' + i + '" checked></td>' +
+                   '<td>' + esc(f.name) + '</td><td class="num">' + fmtKB(f.size) + '</td>' +
+                   '<td class="num" id="cfNew' + i + '">—</td><td id="cfStat' + i + '">pending</td>' +
+                 '</tr>';
         }).join('') + '</tbody></table>';
+    }
+    function toggleCfAll(checked) {
+      cfFiles.forEach(function (f, i) { var c = document.getElementById('cfChk' + i); if (c) c.checked = checked; });
+    }
+    function cfSelectedIndexes() {
+      var out = [];
+      cfFiles.forEach(function (f, i) { var c = document.getElementById('cfChk' + i); if (c && c.checked) out.push(i); });
+      return out;
+    }
+
+    // Opens the compressed result in the existing image lightbox (same one thumbnails use)
+    // so you can actually look at it — legibility, not just the byte count, is what matters
+    // for an ID document. Only available once Preview/Apply has produced a result for that row.
+    function viewCfResult(i) {
+      var f = cfFiles[i];
+      if (!f || !f._out) return;
+      zoomImg('data:' + f._out.mimeType + ';base64,' + f._out.base64);
     }
 
     function runCfPreview() { runCompressFolder(false); }
     function runCfApply() {
-      var msg = 'This permanently overwrites ' + cfFiles.length + ' file(s) in "' + cfFolderName +
+      var n = cfSelectedIndexes().length;
+      if (!n) { setCfStatus('Select at least one file first.', false); return; }
+      var msg = 'This permanently overwrites ' + n + ' file(s) in "' + cfFolderName +
         '" with a compressed version. Originals cannot be recovered. Type YES to continue.';
       if ((prompt(msg) || '').trim().toUpperCase() !== 'YES') { setCfStatus('Cancelled — nothing changed.', true); return; }
       runCompressFolder(true);
@@ -1663,20 +1688,25 @@
     // concurrent-execution limit and a CORS-looking failure, not a clean error.
     function runCompressFolder(apply) {
       if (!cfFiles.length) { setCfStatus('Scan a folder first.', false); return; }
+      var selected = cfSelectedIndexes();
+      if (!selected.length) { setCfStatus('Select at least one file first (checkboxes in the table).', false); return; }
       document.getElementById('cfPreviewBtn').disabled = true;
       document.getElementById('cfApplyBtn').disabled = true;
       var label = apply ? 'Compressing & saving' : 'Previewing';
       var savedBytes = 0, failures = 0, done = 0;
-      setCfStatus(label + ' 0 / ' + cfFiles.length + '…', true);
+      setCfStatus(label + ' 0 / ' + selected.length + '…', true);
       var chain = Promise.resolve();
-      cfFiles.forEach(function (f, i) {
+      selected.forEach(function (i) {
+        var f = cfFiles[i];
         chain = chain.then(function () {
           var statEl = document.getElementById('cfStat' + i);
           statEl.textContent = 'working…';
           return ensureBytes({ id: f.id, mime: f.mime }).then(function (im) {
             return compressToTarget(im.base64, im.mime, CF_MIN_KB, CF_MAX_KB);
           }).then(function (out) {
-            document.getElementById('cfNew' + i).textContent = fmtKB(out.bytes);
+            f._out = out;   // kept for "View" — see viewCfResult
+            document.getElementById('cfNew' + i).innerHTML =
+              fmtKB(out.bytes) + ' <a href="#" onclick="viewCfResult(' + i + ');return false;">View</a>';
             savedBytes += Math.max(0, f.size - out.bytes);
             if (!apply) { statEl.textContent = 'preview only'; return; }
             return callServer('overwriteFileBytes', { fileId: f.id, base64: out.base64, mimeType: out.mimeType })
@@ -1686,15 +1716,15 @@
             statEl.textContent = 'FAILED: ' + (e && e.message ? e.message : 'error');
           }).then(function () {
             done++;
-            setCfStatus(label + ' ' + done + ' / ' + cfFiles.length + '…', true);
+            setCfStatus(label + ' ' + done + ' / ' + selected.length + '…', true);
           });
         });
       });
       chain.then(function () {
         document.getElementById('cfPreviewBtn').disabled = false;
         document.getElementById('cfApplyBtn').disabled = false;
-        var summary = (apply ? 'Done' : 'Preview done') + ' — ~' + fmtKB(savedBytes) + ' saved across ' + cfFiles.length + ' file(s)';
-        setCfStatus(summary + (failures ? (', ' + failures + ' failed (see table).') : '.'), failures === 0);
+        var summary = (apply ? 'Done' : 'Preview done') + ' — ~' + fmtKB(savedBytes) + ' saved across ' + selected.length + ' file(s)';
+        setCfStatus(summary + (failures ? (', ' + failures + ' failed (see table).') : '. Click "View" on any row to check quality before overwriting.'), failures === 0);
       });
     }
 
