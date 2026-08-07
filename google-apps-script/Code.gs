@@ -130,7 +130,7 @@ function doPost(e) {
       case 'getDocBytesChunk':       result = getDocBytesChunk(payload.fileId, payload.chunkIndex); break;
       case 'getFlatsOverview':       result = getFlatsOverview(); break;
       case 'getFlatAgreementDoc':    result = getFlatAgreementDoc(body.flat || payload.flat); break;
-      case 'getFlatAgreementRef':    result = getFlatAgreementRef(body.flat || payload.flat); break;
+      case 'getFlatAgreementRefs':   result = getFlatAgreementRefs(body.flat || payload.flat); break;
       case 'saveStudentDetails':     result = saveStudentDetails(payload.studentId, payload.fields); break;
       case 'deleteStudent':          result = deleteStudent(body.studentId || (payload && payload.studentId)); break;
       case 'saveFlatDetails':        result = saveFlatDetails(body.flat || payload.flat, payload.fields); break;
@@ -138,7 +138,9 @@ function doPost(e) {
       case 'rotateStudentDoc':       result = rotateStudentDoc(payload.studentId, payload.kind, payload.index, payload.base64); break;
       case 'publishApprovedStudent': result = publishApprovedStudent(payload); break;
       case 'emailOwnerDraft':        result = emailOwnerDraft(body.flat || (payload && payload.flat)); break;
-      case 'webUploadAgreement':     result = webUploadAgreement(payload.flat, payload.base64, payload.fileName, payload.mimeType); break;
+      case 'webUploadAgreement':     result = webUploadAgreement(payload.flat, payload.files); break;
+      case 'listFolderImages':       result = listFolderImages(payload.folderId || body.folderId); break;
+      case 'overwriteFileBytes':     result = overwriteFileBytes(payload.fileId, payload.base64, payload.mimeType); break;
       default: throw new Error('Unknown action: ' + body.action);
     }
     out = { ok: true, result: result };
@@ -844,8 +846,10 @@ function rotateStudentDoc(studentId, kind, index, base64) {
 }
 
 // Public wrapper so the web admin page (google.script.run) can store an agreement.
-function webUploadAgreement(flat, base64, fileName, mimeType) {
-  return uploadAgreement_({ flat: flat, base64: base64, fileName: fileName, mimeType: mimeType });
+// `files` is an array of {base64, mimeType} — one entry per page for a rasterized PDF, or a
+// single entry for a plain image / a PDF the browser couldn't rasterize. See uploadAgreement_.
+function webUploadAgreement(flat, files) {
+  return uploadAgreement_({ flat: flat, files: files });
 }
 
 // Returns the Estancia logo as a data URL for the page header. Looks for a file named
@@ -1012,9 +1016,9 @@ function checkAnnexureTemplate_() {
 
 // Web admin: the flat's agreement file bytes (base64) so the left panel can render
 // it (PDF → page thumbnails via pdf.js, or a single image). null if none uploaded.
-// Kept for compatibility; the admin page now uses getFlatAgreementRef + the generic
-// getDocBytesInfo/getDocBytesChunk pair below instead — shipping a whole scanned agreement's
-// base64 in one response was slow/heavy enough to time out for larger multi-page scans.
+// Kept for compatibility with old single-file agreements; the admin page now uses
+// getFlatAgreementRefs + the generic getDocBytesInfo/getDocBytesChunk pair for anything it
+// needs bytes for. Only ever returns the FIRST page of a multi-page agreement.
 function getFlatAgreementDoc(flat) {
   flat = String(flat || '').trim();
   if (!flat) return null;
@@ -1028,41 +1032,59 @@ function getFlatAgreementDoc(flat) {
   };
 }
 
-// Lightweight: just the agreement's URL + mime, no bytes. The admin page fetches the actual
-// bytes afterward through the generic chunked getDocBytesInfo/getDocBytesChunk pair (the same
-// path Aadhaar/College-ID scans use), rather than one large response.
-function getFlatAgreementRef(flat) {
+// Lightweight: every agreement page's URL + mime, no bytes. The admin page renders each
+// straight from Drive (fast image URL, or an iframe preview for a legacy single PDF) and
+// only fetches real bytes on demand (getDocBytesInfo/Chunk) for the rare "Full view" case.
+function getFlatAgreementRefs(flat) {
   flat = String(flat || '').trim();
-  if (!flat) return null;
-  const url = getFlatAgreementUrl_(flat);
-  if (!url) return null;
-  const f = driveFileFromUrl_(url);
-  return { url: url, mime: f ? (f.getMimeType() || '') : '' };
+  if (!flat) return { files: [] };
+  const files = getFlatAgreementFiles_(flat);
+  const refs = files.map(function (f) {
+    const fl = driveFileFromUrl_(f.url);
+    return { url: f.url, mime: fl ? (fl.getMimeType() || '') : '' };
+  });
+  return { files: refs };
 }
 
-// Admin: store the flat's agreement (PDF or image) in the flat's Drive folder.
+// Admin: store the flat's agreement in the flat's Drive folder. `files` is an array of
+// {base64, mimeType} — one entry per page for a PDF the browser rasterized into compressed
+// JPEGs (see admin.html's onAgreeFile), or a single entry for a plain image upload. A single
+// entry whose mimeType is still a PDF (client-side rendering unavailable/failed) is stored
+// as-is under the old single-file naming, so it's handled exactly like an old flat's agreement
+// that predates this — see getFlatAgreementFiles_ for how the two naming schemes coexist.
 // No AI extraction — name matching is done on-device via OCR at verify time.
 function uploadAgreement_(payload) {
   payload = payload || {};
   const flat = String(payload.flat || '').trim();
   if (!flat) throw new Error('Flat number is required.');
-  if (!payload.base64) throw new Error('Agreement file is required.');
+
+  const files = Array.isArray(payload.files) && payload.files.length
+    ? payload.files
+    : (payload.base64 ? [{ base64: payload.base64, mimeType: payload.mimeType, fileName: payload.fileName }] : []);
+  if (!files.length) throw new Error('Agreement file is required.');
 
   const folder = getOrCreateFlatFolder_(flat);
-  const name = String(payload.fileName || 'agreement');
-  const ext = name.indexOf('.') >= 0 ? name.split('.').pop().toLowerCase() : mimeToExt_(payload.mimeType);
-  const finalName = 'agreement.' + ext;
-
   removeFlatAgreement_(folder);
-  const blob = Utilities.newBlob(
-    Utilities.base64Decode(payload.base64),
-    payload.mimeType || 'application/octet-stream',
-    finalName
-  );
-  const fileUrl = saveFileInFolder_(folder, finalName, blob);
+
+  let fileUrl = '';
+  const isPdfFallback = files.length === 1 && String(files[0].mimeType || '').indexOf('pdf') >= 0;
+  if (isPdfFallback) {
+    const f = files[0];
+    const name = String(f.fileName || 'agreement');
+    const ext = name.indexOf('.') >= 0 ? name.split('.').pop().toLowerCase() : mimeToExt_(f.mimeType);
+    const blob = Utilities.newBlob(Utilities.base64Decode(f.base64), f.mimeType || 'application/pdf', 'agreement.' + ext);
+    fileUrl = saveFileInFolder_(folder, 'agreement.' + ext, blob);
+  } else {
+    files.forEach(function (f, i) {
+      const finalName = 'agreement_' + (i + 1) + '.jpg';
+      const blob = Utilities.newBlob(Utilities.base64Decode(f.base64), f.mimeType || 'image/jpeg', finalName);
+      const url = saveFileInFolder_(folder, finalName, blob);
+      if (i === 0) fileUrl = url;
+    });
+  }
   CacheService.getScriptCache().remove(flatAgreementCacheKey_(flat));
 
-  return { ok: true, fileUrl: fileUrl, isImage: String(payload.mimeType || '').indexOf('image') === 0 };
+  return { ok: true, fileUrl: fileUrl, pageCount: files.length, isPdf: isPdfFallback };
 }
 
 // Admin tablet capture: owner signature + signing date/place on the flat row.
@@ -1920,6 +1942,59 @@ function testAgreementFromDrive(fileId) {
   return info;
 }
 
+// ---- Admin tool: batch-compress every image in a Drive folder, in place ----
+// Apps Script has no image/canvas API of its own — it can't re-encode a JPEG. The actual
+// compression runs in the browser (admin.html's compressToTarget, reusing the same canvas
+// pipeline as the upload-time compression elsewhere in this file); these two functions only
+// list what's in a folder and, once the browser has produced smaller bytes, write them back.
+
+// Metadata only (id, name, mime, size) for every image directly inside a folder — no bytes,
+// so the admin page can show what a run would touch before anything is fetched or changed.
+function listFolderImages(folderIdOrUrl) {
+  const folder = driveFolderById_(folderIdOrUrl);
+  if (!folder) throw new Error('Folder not found, or not accessible with this account.');
+  const out = [];
+  const files = folder.getFiles();
+  while (files.hasNext()) {
+    const f = files.next();
+    const mime = f.getMimeType() || '';
+    if (mime.indexOf('image/') !== 0) continue;   // only raster images can go through this path
+    out.push({ id: f.getId(), name: f.getName(), mime: mime, size: f.getSize() });
+  }
+  return { folderId: folder.getId(), folderName: folder.getName(), files: out };
+}
+
+function driveFolderById_(folderIdOrUrl) {
+  const m = String(folderIdOrUrl || '').match(/[-\w]{25,}/);
+  const id = m ? m[0] : String(folderIdOrUrl || '').trim();
+  if (!id) return null;
+  try { return DriveApp.getFolderById(id); } catch (e) { return null; }
+}
+
+// Overwrites a file's BYTES in place — same file id, same share URL, same sharing settings —
+// via the Drive API advanced service. This is deliberately not "trash + recreate" (how new
+// uploads elsewhere in this file work, e.g. saveFileInFolder_): recreating would hand back a
+// new file id/URL, and this tool has no reliable way to find and fix every place the OLD url
+// might already be stored (Sheet columns across every student/flat). Keeping the same id
+// means every existing reference just keeps working, unchanged, pointing at the new bytes.
+//
+// Requires the "Drive API" advanced service enabled for this Apps Script project (editor →
+// Services (+) → Drive API → Add) — throws a clear error naming that step if it's missing.
+// This is the one piece of this session's work that couldn't be verified without a live
+// deployment; test it with Preview (no changes) on a throwaway folder before ever running
+// the real, irreversible "compress & overwrite" against real student/flat documents.
+function overwriteFileBytes(fileId, base64, mimeType) {
+  if (typeof Drive === 'undefined' || !Drive.Files) {
+    throw new Error('The "Drive API" advanced service is not enabled for this project. ' +
+      'Apps Script editor → Services (+) → Drive API → Add, then redeploy the web app.');
+  }
+  if (!fileId) throw new Error('fileId is required.');
+  if (!base64) throw new Error('No image data to save.');
+  const blob = Utilities.newBlob(Utilities.base64Decode(base64), mimeType || 'image/jpeg');
+  Drive.Files.update({}, fileId, blob);
+  return { ok: true, id: fileId };
+}
+
 function exportForIdCard() {
   const ss = getSpreadsheet_();
   const students = ss.getSheetByName(SHEET_STUDENTS);
@@ -2054,24 +2129,51 @@ function saveJsonInFolder_(folder, fileName, obj) {
 // getDocsForVerify_) more than once per load. The agreement rarely changes, so a short TTL
 // is enough to collapse those into one Drive round trip without serving stale data for long.
 // Invalidated immediately on upload (see uploadAgreement_) rather than relying on the TTL.
+// Two naming schemes coexist in a flat's Drive folder: the original single file
+// "agreement.<ext>" (any flat uploaded before PDF-to-images conversion shipped, still a raw
+// PDF or image), and "agreement_<n>.jpg" — one compressed JPEG per page — for anything
+// uploaded since. AGREEMENT_PAGE_RE / AGREEMENT_LEGACY_RE recognize each; every lookup and
+// cleanup function below treats them as the same logical "the flat's agreement."
+const AGREEMENT_PAGE_RE = /^agreement_(\d+)\.[^.]+$/i;
+const AGREEMENT_LEGACY_RE = /^agreement\.[^.]+$/i;
+
 function flatAgreementCacheKey_(flatNumber) { return 'agUrl:' + String(flatNumber || '').trim(); }
-function getFlatAgreementUrl_(flatNumber) {
+
+// All of a flat's agreement files, in page order: [{name, url}, ...]. Prefers the new
+// per-page files; falls back to the single legacy file for a flat that hasn't been
+// re-uploaded since. [] if nothing is on file.
+function getFlatAgreementFiles_(flatNumber) {
   const cache = CacheService.getScriptCache();
   const key = flatAgreementCacheKey_(flatNumber);
   const cached = cache.get(key);
-  if (cached !== null) return cached === ' ' ? '' : cached;
+  if (cached !== null) return cached === ' ' ? [] : JSON.parse(cached);
 
   const folder = getFlatFolder_(flatNumber);
-  let url = '';
+  const pages = [];
+  let legacy = null;
   if (folder) {
     const files = folder.getFiles();
     while (files.hasNext()) {
       const f = files.next();
-      if (f.getName().indexOf('agreement.') === 0) { url = f.getUrl(); break; }
+      const name = f.getName();
+      const pm = name.match(AGREEMENT_PAGE_RE);
+      if (pm) { pages.push({ n: parseInt(pm[1], 10), name: name, url: f.getUrl() }); continue; }
+      if (!legacy && AGREEMENT_LEGACY_RE.test(name)) legacy = { name: name, url: f.getUrl() };
     }
   }
-  cache.put(key, url === '' ? ' ' : url, 60);   // 60s TTL; ' ' marks a cached "none"
-  return url;
+  pages.sort(function (a, b) { return a.n - b.n; });
+  const result = pages.length
+    ? pages.map(function (p) { return { name: p.name, url: p.url }; })
+    : (legacy ? [legacy] : []);
+  cache.put(key, result.length ? JSON.stringify(result) : ' ', 60);   // 60s TTL; ' ' = cached "none"
+  return result;
+}
+
+// Backward-compat single-URL accessor (getFlatAgreementDoc, getDocsForVerify_'s OCR read) —
+// just the first page.
+function getFlatAgreementUrl_(flatNumber) {
+  const files = getFlatAgreementFiles_(flatNumber);
+  return files.length ? files[0].url : '';
 }
 
 function getFlatAgreementInfo_(flatNumber) {
@@ -2086,11 +2188,15 @@ function getFlatAgreementInfo_(flatNumber) {
   }
 }
 
+// Trashes every existing agreement file (both naming schemes) so a re-upload never leaves a
+// stale page behind — e.g. replacing a 3-page agreement with a 1-page one would otherwise
+// leave pages 2 and 3 on file forever.
 function removeFlatAgreement_(folder) {
   const files = folder.getFiles();
   while (files.hasNext()) {
     const f = files.next();
-    if (f.getName().indexOf('agreement.') === 0) f.setTrashed(true);
+    const name = f.getName();
+    if (AGREEMENT_PAGE_RE.test(name) || AGREEMENT_LEGACY_RE.test(name)) f.setTrashed(true);
   }
 }
 

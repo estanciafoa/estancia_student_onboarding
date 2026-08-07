@@ -255,7 +255,12 @@
     </div>
   </div>
 
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script>
+    if (window.pdfjsLib) {
+      pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    }
+
     // Flat passed in via ?flat= (injected by doGet).
     var INIT_FLAT = '<?= flat ?>';
     // Each document can hold multiple files (front + back) or a single PDF.
@@ -479,20 +484,27 @@
 
     // Aadhaar / college-ID photos come off phone cameras at several MB. Downscale + re-encode
     // them to a compact JPEG that's still comfortably readable before we hold or upload them —
-    // it keeps drafts small and the submit fast. Non-images (PDFs) pass through untouched.
+    // it keeps drafts small and the submit fast. Only plain raster images go through this path;
+    // PDFs are rasterized into compressed page images first (see renderPdfToImages / addFile) —
+    // scanning-app PDFs routinely run 5-30MB+ uncompressed, and stored that way that size never
+    // shrinks. compressImageFile itself only skips SVG/animated GIF and falls back on error.
     var COMPRESS_MAX_DIM = 1400;   // longest edge in px — kept small; ID text stays readable
     var COMPRESS_QUALITY = 0.55;   // JPEG quality — aggressive but still legible
+
+    function readFileAsBase64_(file, fallbackMime) {
+      return new Promise(function (resolve) {
+        var r = new FileReader();
+        r.onload = function () { resolve({ base64: String(r.result).split(',')[1], mimeType: file.type || fallbackMime }); };
+        r.onerror = function () { resolve(null); };
+        r.readAsDataURL(file);
+      });
+    }
 
     function compressImageFile(file) {
       return new Promise(function (resolve) {
         var type = file.type || '';
-        function passThrough() {
-          var r = new FileReader();
-          r.onload = function () { resolve({ base64: String(r.result).split(',')[1], mimeType: type || 'application/octet-stream' }); };
-          r.onerror = function () { resolve(null); };
-          r.readAsDataURL(file);
-        }
-        // Only raster photos benefit; leave PDFs, SVG and animated GIFs alone.
+        function passThrough() { readFileAsBase64_(file, 'application/octet-stream').then(resolve); }
+        // Only raster photos benefit; leave SVG and animated GIFs alone.
         if (type.indexOf('image/') !== 0 || type === 'image/svg+xml' || type === 'image/gif') { passThrough(); return; }
         var url = URL.createObjectURL(file);
         var img = new Image();
@@ -519,11 +531,64 @@
       });
     }
 
+    // Renders each page of an uploaded PDF to a compressed JPEG instead of storing the
+    // original — a multi-page scan can be tens of MB; each rendered page is a few hundred KB.
+    var PDF_COMPRESS_MAX_DIM = 1600;   // a bit larger than photos — full-page text needs it
+    var PDF_COMPRESS_QUALITY = 0.6;
+    var PDF_MAX_PAGES = 12;            // sane cap against an accidentally-huge PDF
+    function renderPdfToImages(file) {
+      return file.arrayBuffer().then(function (buf) {
+        return pdfjsLib.getDocument({ data: buf }).promise;
+      }).then(function (pdf) {
+        var numPages = Math.min(pdf.numPages, PDF_MAX_PAGES);
+        var pages = [];
+        var chain = Promise.resolve();
+        for (var p = 1; p <= numPages; p++) {
+          (function (pageNum) {
+            chain = chain.then(function () {
+              return pdf.getPage(pageNum).then(function (page) {
+                var base = page.getViewport({ scale: 1 });
+                var scale = Math.min(2, PDF_COMPRESS_MAX_DIM / Math.max(base.width, base.height));
+                var viewport = page.getViewport({ scale: scale });
+                var canvas = document.createElement('canvas');
+                canvas.width = viewport.width; canvas.height = viewport.height;
+                var ctx = canvas.getContext('2d');
+                ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+                return page.render({ canvasContext: ctx, viewport: viewport }).promise.then(function () {
+                  pages.push({ base64: canvas.toDataURL('image/jpeg', PDF_COMPRESS_QUALITY).split(',')[1], mimeType: 'image/jpeg' });
+                });
+              });
+            });
+          })(p);
+        }
+        return chain.then(function () { return pages; });
+      });
+    }
+
+    // One selected file → one or more stored files. PDFs become compressed page images;
+    // everything else goes through the single-image compression path. Falls back to storing
+    // the original bytes untouched if PDF rendering fails (e.g. an encrypted/corrupt PDF, or
+    // pdf.js didn't load) so an upload never just silently disappears.
+    function processSelectedFile(file) {
+      var type = file.type || '';
+      var isPdf = type === 'application/pdf' || /\.pdf$/i.test(file.name || '');
+      if (isPdf) {
+        if (!window.pdfjsLib) return readFileAsBase64_(file, 'application/pdf').then(function (out) { return out ? [out] : []; });
+        return renderPdfToImages(file).catch(function () {
+          return readFileAsBase64_(file, 'application/pdf').then(function (out) { return out ? [out] : []; });
+        });
+      }
+      return compressImageFile(file).then(function (out) { return out ? [out] : []; });
+    }
+
     function addFile(kind, f) {
       var name = f.name || (kind + '-pasted-' + (docs[kind].length + 1));
-      compressImageFile(f).then(function (out) {
-        if (!out) return;
-        docs[kind].push({ base64: out.base64, mimeType: out.mimeType, name: name });
+      processSelectedFile(f).then(function (results) {
+        if (!results || !results.length) return;
+        results.forEach(function (out, idx) {
+          var label = results.length > 1 ? (name + ' (page ' + (idx + 1) + ')') : name;
+          docs[kind].push({ base64: out.base64, mimeType: out.mimeType, name: label });
+        });
         renderList(kind);
         updateTicks();
       });
