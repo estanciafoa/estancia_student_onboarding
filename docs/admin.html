@@ -99,6 +99,9 @@
     .drow { display: flex; justify-content: space-between; gap: 12px; padding: 9px 4px; border-bottom: 1px solid #eef1f7; }
     .drow dt { color: #5f6f8f; font-size: 13px; }
     .drow dd { margin: 0; font-size: 15px; font-weight: 600; text-align: right; word-break: break-word; }
+    .pm-warn { margin: 0 0 10px; padding: 10px 12px; border-radius: 10px; font-size: 13px; line-height: 1.45;
+               background: #fff4e5; border: 1px solid #f5c26b; color: #6b4200; }
+    .pm-warn button { margin-top: 8px; }
     .empty { color: #8a94a6; font-style: italic; padding: 20px 6px; }
 
     /* hover-to-edit details */
@@ -358,6 +361,7 @@
     body.theme-dark .zoomctl button { background: #1b2733; color: #d6e1ea; }
     body.theme-dark .zoomctl button:hover { background: #25394a; }
     body.theme-dark .drow { border-bottom-color: #22303c; }
+    body.theme-dark .pm-warn { background: #3a2a10; border-color: #8a6420; color: #f5d9a8; }
     body.theme-dark .drow dt { color: #9fb1c0; }
     body.theme-dark .drow dd { color: var(--dark); }
     body.theme-dark .docgroup { color: #9fb1c0; }
@@ -434,18 +438,19 @@
       <div class="flatedit" id="flatEdit">
         <div class="fe-row">
           <div style="flex:2 1 0"><label>Owner name</label><input id="fOwnerName"></div>
-          <div><label>Owner mobile</label><input id="fOwnerMobile" inputmode="numeric"></div>
+          <div><label>Owner mobile</label><input id="fOwnerMobile" type="tel" inputmode="numeric" placeholder="10 digits" oninput="tidyPhoneInput(this)"></div>
         </div>
         <div class="fe-row">
           <div><label>Owner email</label><input id="fOwnerEmail" type="email"></div>
           <div><label>Caretaker name</label><input id="fCaretakerName"></div>
-          <div><label>Caretaker no.</label><input id="fCaretakerNumber" inputmode="numeric"></div>
+          <div><label>Caretaker no.</label><input id="fCaretakerNumber" type="tel" inputmode="numeric" placeholder="10 digits" oninput="tidyPhoneInput(this)"></div>
         </div>
         <div class="fe-row">
           <div><label>Agreement date from</label><input id="fAgreementDate" type="date"></div>
           <div><label>Agreement date to</label><input id="fTenancy" type="date"></div>
           <button onclick="saveFlatEdit()">Save</button>
         </div>
+        <div id="flatDatesLock" class="hint"></div>
         <div id="flatEditStatus" class="hint"></div>
       </div>
       <div class="pane-body" id="agreeBody"><div class="empty">Load a flat to see its agreement.</div></div>
@@ -670,7 +675,7 @@
     // Bumped by hand on every edit to this file — logged immediately (before anything else
     // can throw) so checking the console tells you whether the browser actually has the
     // latest admin.html, vs. an old cached copy GitHub Pages already moved past.
-    var ADMIN_BUILD = '2026-09-16 validtill-agreement-end';
+    var ADMIN_BUILD = '2026-09-16 admin-dates-final';
     console.log('[admin] build: ' + ADMIN_BUILD);
 
     if (window.pdfjsLib) {
@@ -1236,6 +1241,10 @@
       document.getElementById('fCaretakerNumber').value = f.CaretakerNumber || '';
       document.getElementById('fAgreementDate').value = toInputDate(f.AgreementDate);
       document.getElementById('fTenancy').value = toInputDate(f.TenancyPeriod);
+      // Once the admin has saved the dates, resident form submissions can't change them.
+      document.getElementById('flatDatesLock').textContent = f.DatesSetByAdminAt
+        ? '🔒 Agreement dates set by admin (' + f.DatesSetByAdminAt + ') — residents can no longer change them.'
+        : (f.AgreementDate || f.TenancyPeriod) ? 'Agreement dates are from the resident form — saving here makes them final.' : '';
       document.getElementById('flatEditStatus').textContent = '';
     }
     function saveFlatEdit() {
@@ -1253,8 +1262,8 @@
           tenancyPeriod: document.getElementById('fTenancy').value.trim()
         } })
         .then(function (r) {
+          if (r && r.flat) fillFlatEdit(r.flat);   // (clears the status line, so set it after)
           st.textContent = 'Saved ✓';
-          if (r && r.flat) fillFlatEdit(r.flat);
           // Students already approved were published with the old dates — refresh those rows.
           var rows = students.filter(function (s) { return isApproved(s) && s.AssignedId; })
             .map(function (s) { return studentRowValues(s, flat, 'U'); });
@@ -1513,11 +1522,16 @@
           var get = s._docs ? Promise.resolve(s._docs)
             : callServer('getCompareDocs', { studentId: s.StudentId, knownFields: s }).then(function (d) { s._docs = d || {}; return s._docs; });
           return get.then(function (d) {
-            var ph = d && (d.photo || d.selfPhoto);   // admin capture, else resident's upload
-            if (ph && ph.base64) {
-              downloadDataUrl('data:' + (ph.mime || 'image/jpeg') + ';base64,' + ph.base64, getIdBase(s) + '.jpg');
-              count++;
-            }
+            // Admin capture, else (or if its bytes can't be read) the resident's upload.
+            var tryRef = function (list) {
+              var ph = list.shift();
+              if (!ph) return;
+              return ensureBytes(ph).then(function () {
+                downloadDataUrl('data:' + (ph.mime || 'image/jpeg') + ';base64,' + ph.base64, getIdBase(s) + '.jpg');
+                count++;
+              }, function () { return tryRef(list); });
+            };
+            return tryRef([d && d.photo, d && d.selfPhoto].filter(Boolean));
           });
         });
       });
@@ -1943,6 +1957,16 @@
       renderSign();
     }
 
+    // Phone numbers are 10 digits with no country code: strip spaces / dashes and a leading
+    // +91, 91 or 0 as the admin types or pastes. The server enforces the same rule on save.
+    function tidyPhoneInput(el) {
+      var d = String(el.value || '').replace(/\D/g, '');
+      if (d.length > 10 && d.indexOf('91') === 0) d = d.slice(2);
+      else if (d.length > 10 && d.charAt(0) === '0') d = d.slice(1);
+      d = d.slice(0, 10);
+      if (el.value !== d) el.value = d;
+    }
+
     // Editable student fields (label, sheet column).
     var EDIT_FIELDS = [
       ['Name', 'Name'], ['Aadhaar #', 'AadharNumber'], ['Mobile', 'Phone'], ['Email', 'Email'],
@@ -2018,22 +2042,29 @@
       // uploaded photo. An admin retake overlaps this; the ✕ reverts to it (see removePhoto).
       var adminPhoto = s._docs && s._docs.photo;
       var selfPhoto = s._docs && s._docs.selfPhoto;
+      if (adminPhoto && adminPhoto.failed) adminPhoto = null;   // unreadable → fall back to the upload
+      if (selfPhoto && selfPhoto.failed) selfPhoto = null;
       var base = adminPhoto || selfPhoto;
-      if (base) {
+      // The photo arrives as a ref; pull its bytes, then redraw — unless the admin has started
+      // a camera shot / upload meanwhile (renderPhoto would discard it).
+      var baseLoading = !!(base && !base.base64);
+      if (baseLoading) loadRefBytes(s, base, function () { if (!capturedPhoto && !camStream) renderPhoto(); });
+      if (base && !baseLoading) {
         pv.src = 'data:' + (base.mime || 'image/jpeg') + ';base64,' + base.base64;
         setPhotoState('photo');
       } else {
         pv.src = ''; setPhotoState('empty');
       }
-      document.getElementById('dlPhotoBtn').disabled = !base;
+      var ready = !!base && !baseLoading;
+      document.getElementById('dlPhotoBtn').disabled = !ready;
       // The ID card needs a face photo AND an assigned Student ID (for the barcode/record).
-      document.getElementById('idCardBtn').disabled = !(base && s.AssignedId);
+      document.getElementById('idCardBtn').disabled = !(ready && s.AssignedId);
       document.getElementById('idCardBtn').title = s.AssignedId
         ? 'Download ID card (front)'
         : 'Assign a Student ID first to make the ID card';
-      document.getElementById('editPhotoBtn').disabled = !base;
+      document.getElementById('editPhotoBtn').disabled = !ready;
       document.getElementById('photoExisting').innerHTML =
-        (!s._docs && s._docsLoading)
+        ((!s._docs && s._docsLoading) || baseLoading)
           ? '<span class="ph-spin" style="display:inline-block;width:15px;height:15px;border-width:2px;vertical-align:middle"></span> Loading photo…'
           : adminPhoto
             ? 'Admin photo on file — Download saves it as <b>' + esc(getIdBase(s)) + '.jpg</b>. Take or upload a new one to replace it.'
@@ -2119,10 +2150,14 @@
       // acceptance + the actual signature so the admin can check it, and remind the admin
       // to have the resident read the full tripartite agreement (Agreement pane) once.
       var sig = s._docs && s._docs.signature;
+      // The signature arrives as a ref; pull its bytes, then redraw unless the pad is in use.
+      if (sig && !sig.base64) loadRefBytes(s, sig, function () {
+        if (!signDrawn && !document.getElementById('agreeCheck').checked) renderSign();
+      });
       var accepted = !!(sig && sig.base64) || !!s.SignatureUrl || String(s.AgreementStatus || '') === 'Signed';
       var box = document.getElementById('signExisting');
       var ask = '<div style="margin-top:8px;color:var(--pri);font-weight:600">👉 Please check with the resident that they have read all the tripartite clauses (Annexure 2A, shown in the Agreement pane) manually.</div>';
-      if (!s._docs && s._docsLoading) {
+      if ((!s._docs && s._docsLoading) || (sig && sig.loading)) {
         box.innerHTML = '<div class="ph-load" style="padding:10px 0"><span class="ph-spin"></span><span>Loading signature…</span></div>' + ask;
         return;
       }
@@ -2433,7 +2468,15 @@
       var rows = [['Assigned ID', s.AssignedId]]
         .concat(EDIT_FIELDS.map(function (f) { return [f[0], s[f[1]]]; }))
         .concat([['Status', s.Status]]);
-      box.innerHTML =
+      // The form didn't save this student's parent mobile (another student already has it as
+      // their parent number) — prompt the admin to confirm siblings and enter it.
+      var pmWarn = (s.ParentMobileNote && !s.ParentMobile)
+        ? '<div class="pm-warn">⚠ <b>Parent mobile not saved.</b> The number this student entered is already the parent number of <b>' +
+          esc(String(s.ParentMobileNote).replace(/^Not saved — already the parent number of /, '')) +
+          '</b>. If they are siblings, confirm with the student and enter it.' +
+          '<br><button class="ghostbtn" onclick="editParentMobile()">Enter parent mobile</button></div>'
+        : '';
+      box.innerHTML = pmWarn +
         '<dl>' + rows.map(function (r) {
           return '<div class="drow"><dt>' + r[0] + '</dt><dd>' + esc(r[1] || '—') + '</dd></div>';
         }).join('') + '</dl>';
@@ -2448,7 +2491,9 @@
               return '<option' + (o === v ? ' selected' : '') + '>' + (o || '—') + '</option>';
             }).join('') + '</select></div>';
         }
-        return '<div class="edrow"><label>' + f[0] + '</label><input id="ed_' + f[1] + '" value="' + esc(s[f[1]] || '') + '"></div>';
+        var phoneAttrs = (f[1] === 'Phone' || f[1] === 'ParentMobile')
+          ? ' type="tel" inputmode="numeric" placeholder="10 digits" oninput="tidyPhoneInput(this)"' : '';
+        return '<div class="edrow"><label>' + f[0] + '</label><input id="ed_' + f[1] + '"' + phoneAttrs + ' value="' + esc(s[f[1]] || '') + '"></div>';
       }).join('');
       return '<div class="edit-head">Edit student details</div>' + inputs +
         '<div class="edit-actions"><button class="ghostbtn" onclick="cancelEditDetails()">Cancel</button>' +
@@ -2460,6 +2505,11 @@
       editingDetails = true;
       document.getElementById('editDetailsBtn').style.display = 'none';
       renderDetails();
+    }
+    function editParentMobile() {
+      startEditDetails();
+      var el = document.getElementById('ed_ParentMobile');
+      if (el) { el.scrollIntoView({ block: 'center' }); el.focus(); }
     }
     function cancelEditDetails() {
       editingDetails = false;
@@ -2594,6 +2644,16 @@
           return im;
         });
       });
+    }
+    // Pull a doc ref's bytes in the background (photo / signature — see getCompareDocs), then
+    // call `redraw` if the same student is still selected. A failure is remembered (im.failed)
+    // so the pane shows its "no image" state instead of spinning or re-requesting forever.
+    function loadRefBytes(s, im, redraw) {
+      if (!im || im.base64 || im.failed || im.loading) return;
+      im.loading = true;
+      ensureBytes(im)
+        .catch(function () { im.failed = true; })
+        .then(function () { im.loading = false; if (students[activeTab] === s) redraw(); });
     }
     // If the fast Drive display URL fails to load, fall back to fetching the bytes.
     function thumbFallback(img) {

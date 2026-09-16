@@ -106,12 +106,12 @@
           <div class="hint">4-digit flat number</div>
           <div class="row">
             <div><label class="req">Owner name</label><input id="ownerName"></div>
-            <div><label>Owner mobile</label><input id="ownerMobile" inputmode="numeric"></div>
+            <div><label>Owner mobile</label><input id="ownerMobile" class="phone10" type="tel" inputmode="numeric" autocomplete="tel-national" placeholder="10-digit mobile"></div>
           </div>
           <label class="req">Owner email</label><input id="ownerEmail" type="email">
           <div class="row">
             <div><label>Caretaker name</label><input id="caretakerName"></div>
-            <div><label>Caretaker number</label><input id="caretakerNumber" inputmode="numeric"></div>
+            <div><label>Caretaker number</label><input id="caretakerNumber" class="phone10" type="tel" inputmode="numeric" autocomplete="tel-national" placeholder="10-digit mobile"></div>
           </div>
           <div class="row">
             <div><label>Agreement date from</label><input id="agreementDate" type="date"></div>
@@ -127,7 +127,7 @@
           <label class="req">Full name (as on Aadhaar)</label>
           <input id="name">
           <div class="row">
-            <div><label class="req">Mobile</label><input id="mobile" inputmode="numeric"></div>
+            <div><label class="req">Mobile</label><input id="mobile" class="phone10" type="tel" inputmode="numeric" autocomplete="tel-national" placeholder="10-digit mobile"></div>
             <div><label>Sex</label>
               <select id="sex"><option value="">—</option><option>Male</option><option>Female</option><option>Other</option></select>
             </div>
@@ -144,7 +144,7 @@
           <h2>Parent / Guardian</h2>
           <div class="row">
             <div><label class="req">Name</label><input id="parentName"></div>
-            <div><label class="req">Mobile</label><input id="parentMobile" inputmode="numeric"></div>
+            <div><label class="req">Mobile</label><input id="parentMobile" class="phone10" type="tel" inputmode="numeric" placeholder="10-digit mobile"></div>
           </div>
         </div>
         <div class="card">
@@ -252,6 +252,7 @@
       <div class="big">✅</div>
       <h2 style="text-transform:none;color:#202124">Thank you!</h2>
       <p class="sub">Your details, agreement and signature have been submitted. If your signature or photo needs correcting, just reopen this form and submit again.</p>
+      <p class="sub" id="doneNote" style="display:none;color:#b3261e;font-weight:600"></p>
     </div>
   </div>
 
@@ -335,12 +336,17 @@
       ['aadhar', 'college'].forEach(function (kind) {
         document.getElementById(kind + 'Box').addEventListener('click', function () { setActive(kind); });
       });
+      // Normalise phone numbers as typed/pasted (before the tick/draft listeners see the value).
+      document.getElementById('form').addEventListener('input', function (e) {
+        if (e.target && e.target.classList && e.target.classList.contains('phone10')) tidyPhones();
+      });
       // Keep the tab ticks current as the user types.
       document.getElementById('form').addEventListener('input', updateTicks);
       // Persist a 1-day auto-expiring draft as fields/selects change.
       document.getElementById('form').addEventListener('input', saveDraft);
       document.getElementById('form').addEventListener('change', saveDraft);
       loadDraft();                                                     // restore any unexpired draft …
+      tidyPhones();                                                    // … fixing any "+91…" saved in it
       if (INIT_FLAT) document.getElementById('flat').value = INIT_FLAT;  // … but a ?flat= link wins
       setActive('aadhar');
       initSignPad();
@@ -422,14 +428,19 @@
         if (!val('flat')) return 'Flat number is required.';
         if (!val('ownerName')) return 'Owner name is required.';
         if (!val('ownerEmail')) return 'Owner email is required.';
+        if (val('ownerMobile') && !isPhone10(val('ownerMobile'))) return 'Owner mobile must be a 10-digit number (without +91).';
+        if (val('caretakerNumber') && !isPhone10(val('caretakerNumber'))) return 'Caretaker number must be a 10-digit number (without +91).';
       } else if (i === 1) {
         if (!val('name')) return 'Your name is required.';
-        if (!val('mobile')) return 'Your mobile number is required.';
+        if (!isPhone10(val('mobile'))) return 'A valid 10-digit mobile number is required (without +91).';
+        if (!isRealMobile(val('mobile'))) return 'Please enter your own, valid mobile number.';
         if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(val('email'))) return 'A valid email is required.';
         if (val('aadharNumber').replace(/\D/g, '').length !== 12) return 'A valid 12-digit Aadhaar number is required.';
       } else if (i === 2) {
         if (!val('parentName')) return 'Parent / Guardian name is required.';
-        if (!val('parentMobile')) return 'Parent / Guardian mobile number is required.';
+        if (!isPhone10(val('parentMobile'))) return 'A valid 10-digit Parent / Guardian mobile number is required (without +91).';
+        if (!isRealMobile(val('parentMobile'))) return 'Please enter your Parent / Guardian\'s own, valid mobile number.';
+        if (val('parentMobile') === val('mobile')) return 'Parent / Guardian mobile must be different from your own mobile number.';
         if (!val('collegeStudentId')) return 'College / Company ID is required.';
         if (!val('collegeName')) return 'College / Company name is required.';
       } else if (i === 3) {
@@ -819,6 +830,25 @@
 
     // --- Helpers / submit ----------------------------------------------------
     function val(id) { return document.getElementById(id).value.trim(); }
+
+    // Phone numbers are 10 digits with no country code. Strips spaces / dashes and a leading
+    // +91, 91 or 0 as the resident types or pastes ("+91 98765 43210" → "9876543210").
+    function phoneDigits(v) {
+      var d = String(v == null ? '' : v).replace(/\D/g, '');
+      if (d.length > 10 && d.indexOf('91') === 0) d = d.slice(2);
+      else if (d.length > 10 && d.charAt(0) === '0') d = d.slice(1);
+      return d.slice(0, 10);
+    }
+    function isPhone10(v) { return /^\d{10}$/.test(String(v || '')); }
+    // A real Indian mobile: starts 6-9 and isn't one digit repeated (9999999999). The server
+    // also rejects a number already registered for anyone else (checked on submit).
+    function isRealMobile(v) { v = String(v || ''); return /^[6-9]\d{9}$/.test(v) && !/^(\d)\1{9}$/.test(v); }
+    function tidyPhones() {
+      Array.prototype.forEach.call(document.querySelectorAll('input.phone10'), function (el) {
+        var d = phoneDigits(el.value);
+        if (el.value !== d) el.value = d;
+      });
+    }
     function set(id, v) { document.getElementById(id).value = v; }
 
     function submitForm() {
@@ -832,11 +862,11 @@
 
       var payload = {
         flat: val('flat'),
-        ownerName: val('ownerName'), ownerEmail: val('ownerEmail'), ownerMobile: val('ownerMobile'),
-        caretakerName: val('caretakerName'), caretakerNumber: val('caretakerNumber'),
-        name: val('name'), mobile: val('mobile'), email: val('email'), sex: val('sex'),
+        ownerName: val('ownerName'), ownerEmail: val('ownerEmail'), ownerMobile: phoneDigits(val('ownerMobile')),
+        caretakerName: val('caretakerName'), caretakerNumber: phoneDigits(val('caretakerNumber')),
+        name: val('name'), mobile: phoneDigits(val('mobile')), email: val('email'), sex: val('sex'),
         aadharNumber: val('aadharNumber'), address: val('address'),
-        parentName: val('parentName'), parentMobile: val('parentMobile'),
+        parentName: val('parentName'), parentMobile: phoneDigits(val('parentMobile')),
         collegeStudentId: val('collegeStudentId'), collegeName: val('collegeName'),
         courseName: val('courseName'), academicYear: val('academicYear'), idValidUpto: val('idValidUpto'),
         tenancyPeriod: val('tenancyPeriod'), agreementDate: val('agreementDate'),
@@ -853,6 +883,12 @@
         .withSuccessHandler(function (r) {
           if (r && r.ok) {
             clearDraft();
+            if (r.parentMobileNotSaved) {
+              var note = document.getElementById('doneNote');
+              note.textContent = 'Your Parent / Guardian mobile number is already registered for another student, so it was not saved. ' +
+                'If they are your sibling, please ask the EFOA admin to add it when you go for verification.';
+              note.style.display = 'block';
+            }
             document.getElementById('form').style.display = 'none';
             document.getElementById('done').style.display = 'block';
             window.scrollTo(0, 0);

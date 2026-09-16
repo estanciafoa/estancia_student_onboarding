@@ -50,7 +50,11 @@ const STUDENTS_HEADER = [
   'AssignedId',
   'CourseName',
   'IdValidUpto',
-  'SignedAt'
+  'SignedAt',
+  // Set when the form didn't save the parent mobile because another student already has it as
+  // their parent number (e.g. a sibling) — names who, never the number. Cleared once the admin
+  // saves a parent mobile.
+  'ParentMobileNote'
 ];
 
 // Flat-level owner / caretaker block for the Annexure 2A header + page-5 undertaking.
@@ -65,8 +69,14 @@ const FLATS_HEADER = [
   'SigningDate',
   'SigningPlace',
   'TenancyPeriod',
-  'AgreementDate'
+  'AgreementDate',
+  // When the admin saved the agreement dates (IST text). Once set, the student form can no
+  // longer change AgreementDate / TenancyPeriod — the admin's dates are final.
+  'DatesSetByAdminAt'
 ];
+
+// Flat columns the student form may not overwrite once DatesSetByAdminAt is set.
+const ADMIN_LOCKED_FLAT_COLS = ['AgreementDate', 'TenancyPeriod'];
 
 function getSpreadsheet_() {
   return SPREADSHEET_ID
@@ -427,6 +437,118 @@ function cleanDigits_(v, max) {
   return max ? d.slice(0, max) : d;
 }
 
+// Phone numbers are stored as a bare 10-digit number, never with a country code: drops
+// spaces / dashes and a leading +91, 91 or 0 (e.g. "+91 98765 43210" → "9876543210").
+// Slicing the raw digits to 10 instead would keep the "91" and lose the last two digits.
+function cleanPhone_(v) {
+  let d = String(v == null ? '' : v).replace(/\D/g, '');
+  if (d.length > 10 && d.indexOf('91') === 0) d = d.slice(2);
+  else if (d.length > 10 && d.charAt(0) === '0') d = d.slice(1);
+  return d;
+}
+
+// cleanPhone_ + validation: returns the 10 digits, '' for a blank optional number, and
+// throws for anything else.
+function phone10_(v, label, required) {
+  const d = cleanPhone_(v);
+  if (!d && !required) return '';
+  if (d.length !== 10) throw new Error(label + ' must be a 10-digit mobile number (without +91).');
+  return d;
+}
+
+// A resident's own / parent mobile: phone10_ plus a real Indian mobile (starts 6-9, not one
+// digit repeated like 9999999999).
+function mobile10_(v, label, required) {
+  const d = phone10_(v, label, required);
+  if (d && (!/^[6-9]\d{9}$/.test(d) || /^(\d)\1{9}$/.test(d))) {
+    throw new Error(label + ' is not a valid mobile number.');
+  }
+  return d;
+}
+
+// Guards against a shared / borrowed number. The same person's own rows (same StudentId or
+// same Aadhaar — a resident filling the form again) never count as "someone else".
+//  - own mobile: may not be on file anywhere else (any student's Mobile or Parent mobile, any
+//    flat's owner / caretaker number), and must differ from the parent mobile;
+//  - parent mobile: may not be anyone's own Mobile or an owner / caretaker number. Matching
+//    another student's Parent mobile (siblings) is refused too unless `allowSiblingParent`;
+//    it is reported as parentShared so the form can leave it for the admin to add.
+// Pass '' for a number that isn't being set. Returns { parentShared: bool, parentSharedWith:
+// ['Name (flat 4135)', ...] } — the students whose parent number it matched.
+function checkPhonesNotShared_(opts) {
+  const phone = opts.phone || '', parent = opts.parentMobile || '';
+  if (phone && parent && phone === parent) {
+    throw new Error('Your mobile and your Parent / Guardian mobile must be different numbers.');
+  }
+  const out = { parentShared: false, parentSharedWith: [] };
+  if (!phone && !parent) return out;
+  const id = String(opts.studentId || '').trim();
+  const aadhar = cleanDigits_(opts.aadhar, 12);
+  const ss = getSpreadsheet_();
+
+  // uses[number] = { own, parent, flat } — where else that number appears.
+  const uses = {};
+  const note = (v, kind) => {
+    const d = cleanPhone_(v);
+    if (d && (d === phone || d === parent)) (uses[d] = uses[d] || {})[kind] = true;
+  };
+  const students = ss.getSheetByName(SHEET_STUDENTS);
+  if (students && students.getLastRow() >= 2) {
+    const values = students.getDataRange().getValues();
+    const h = values.shift();
+    const iId = h.indexOf('StudentId'), iAadhar = h.indexOf('AadharNumber');
+    const iPhone = h.indexOf('Phone'), iParent = h.indexOf('ParentMobile');
+    const iName = h.indexOf('Name'), iHouse = h.indexOf('HouseId');
+    values.forEach(r => {
+      if (id && iId >= 0 && String(r[iId]).trim() === id) return;
+      if (aadhar.length === 12 && iAadhar >= 0 && cleanDigits_(r[iAadhar], 12) === aadhar) return;
+      if (iPhone >= 0) note(r[iPhone], 'own');
+      if (iParent >= 0) {
+        note(r[iParent], 'parent');
+        if (parent && cleanPhone_(r[iParent]) === parent) {
+          out.parentSharedWith.push(String(r[iName] || 'another student').trim() +
+            (iHouse >= 0 && String(r[iHouse]).trim() ? ' (flat ' + String(r[iHouse]).trim() + ')' : ''));
+        }
+      }
+    });
+  }
+  const flats = ss.getSheetByName(SHEET_FLATS);
+  if (flats && flats.getLastRow() >= 2) {
+    const values = flats.getDataRange().getValues();
+    const h = values.shift();
+    ['OwnerMobile', 'CaretakerNumber'].map(c => h.indexOf(c)).filter(i => i >= 0)
+      .forEach(i => values.forEach(r => note(r[i], 'flat')));
+  }
+
+  const taken = (d, what) => new Error('The ' + what + ' number ' + d + ' is already registered for someone else. ' +
+    'Please enter a number that belongs only to ' + (what === 'Mobile' ? 'you' : 'your parent / guardian') + '.');
+  if (phone && uses[phone]) throw taken(phone, 'Mobile');
+  const pu = parent ? uses[parent] : null;
+  if (pu && (pu.own || pu.flat)) throw taken(parent, 'Parent / Guardian mobile');
+  if (pu && pu.parent) {
+    if (!opts.allowSiblingParent && !opts.reportSiblingParent) throw taken(parent, 'Parent / Guardian mobile');
+    out.parentShared = true;
+  }
+  return out;
+}
+
+// Every Students row with this Aadhaar — earlier submissions by the same resident.
+function studentRowsByAadhaar_(aadhar) {
+  const sh = studentsSheetAndHeader_();
+  const iAadhar = sh.header.indexOf('AadharNumber');
+  if (iAadhar < 0 || sh.sheet.getLastRow() < 2) return [];
+  const values = sh.sheet.getDataRange().getValues();
+  const out = [];
+  for (let i = 1; i < values.length; i++) {
+    if (cleanDigits_(values[i][iAadhar], 12) === aadhar) {
+      const row = values[i].slice();
+      while (row.length < sh.header.length) row.push('');
+      out.push({ header: sh.header, row: row, rowNumber: i + 1 });
+    }
+  }
+  return out;
+}
+
 // Base filename for a student's stored files: the student's name (sanitized) with the
 // StudentId appended so two students never collide / overwrite each other's photos.
 // e.g. "Priya Sharma_STU20260624121530". Falls back to the id (or 'student') if unnamed.
@@ -440,6 +562,8 @@ function studentFileBase_(name, studentId) {
 // Student self-service submit from the mobile web form. Appends a new student row
 // (Status='Submitted') or merges onto an existing row when a studentId is supplied,
 // stores the Aadhaar + college-ID images, and upserts the flat's owner/caretaker row.
+// A resident filling the form again (same Aadhaar) updates their earlier, not-yet-approved
+// row instead of adding a duplicate; once approved, a resubmission is refused.
 function submitStudentSelf(payload) {
   payload = payload || {};
   const flat = String(payload.flat || payload.houseId || '').trim();
@@ -452,16 +576,41 @@ function submitStudentSelf(payload) {
   if (!ownerEmail) throw new Error('Owner email is required.');
   if (!name) throw new Error('Name is required.');
   if (aadhar.length !== 12) throw new Error('A valid 12-digit Aadhaar number is required.');
+  // Validate every number up front, before any file is written to Drive.
+  const phone = mobile10_(payload.mobile || payload.phone, 'Mobile', true);
+  const parentMobile = mobile10_(payload.parentMobile, 'Parent / Guardian mobile', false);
+  const ownerMobile = phone10_(payload.ownerMobile, 'Owner mobile', false);
+  const caretakerNumber = phone10_(payload.caretakerNumber, 'Caretaker number', false);
+
+  // Same Aadhaar = same person. Approved → refuse (changes go through the EFOA office);
+  // otherwise update their latest earlier row.
+  const prior = payload.studentId ? [] : studentRowsByAadhaar_(aadhar);
+  if (prior.some(p => String(p.row[p.header.indexOf('Status')] || '').trim().toLowerCase() === 'approved')) {
+    throw new Error('You are already registered and approved with this Aadhaar number. ' +
+      'To change any of your details, please contact the EFOA office.');
+  }
+  const reuse = prior.length ? prior[prior.length - 1] : null;
+
+  // A parent number already given by another student (e.g. a sibling) isn't saved from the
+  // form — the resident asks the admin, who can save it on the admin page.
+  const shared = checkPhonesNotShared_({ studentId: payload.studentId, aadhar: aadhar,
+    phone: phone, parentMobile: parentMobile, reportSiblingParent: true });
+  const parentMobileToSave = shared.parentShared ? '' : parentMobile;
+  const parentMobileNote = shared.parentShared
+    ? 'Not saved — already the parent number of ' + shared.parentSharedWith.join(', ') : '';
 
   const sh = studentsSheetAndHeader_();
   const sheet = sh.sheet;
   const header = sh.header;
 
-  if (!payload.studentId && countFlatStudents_(flat) >= MAX_STUDENTS_PER_HOUSE) {
+  const sameFlatReuse = reuse && String(reuse.row[header.indexOf('HouseId')]).trim() === flat;
+  if (!payload.studentId && !sameFlatReuse && countFlatStudents_(flat) >= MAX_STUDENTS_PER_HOUSE) {
     throw new Error('This flat already has ' + MAX_STUDENTS_PER_HOUSE + ' students.');
   }
 
-  const studentId = payload.studentId ? String(payload.studentId) : generateStudentId_();
+  const studentId = payload.studentId ? String(payload.studentId)
+    : reuse ? String(reuse.row[header.indexOf('StudentId')]).trim()
+    : generateStudentId_();
   const folder = getOrCreateFlatFolder_(flat);
   const base = studentFileBase_(name, studentId);
 
@@ -487,13 +636,14 @@ function submitStudentSelf(payload) {
     StudentId: studentId,
     Name: name,
     AadharNumber: aadhar,
-    Phone: cleanDigits_(payload.mobile || payload.phone, 10),
+    Phone: phone,
     HouseId: flat,
     Status: 'Submitted',
     Email: String(payload.email || '').trim(),
     Sex: String(payload.sex || '').trim(),
     ParentName: String(payload.parentName || '').trim(),
-    ParentMobile: cleanDigits_(payload.parentMobile, 10),
+    ParentMobile: parentMobileToSave,
+    ParentMobileNote: parentMobileNote,
     CollegeStudentId: String(payload.collegeStudentId || '').trim(),
     CollegeName: String(payload.collegeName || '').trim(),
     AcademicYear: String(payload.academicYear || payload.year || '').trim(),
@@ -514,28 +664,34 @@ function submitStudentSelf(payload) {
   // Only set when a photo was uploaded this submit, so a later edit without one never wipes it.
   if (selfPhotoUrl) fields.SelfPhotoUrl = selfPhotoUrl;
 
-  const existing = payload.studentId ? findStudentRowById_(studentId) : null;
+  const existing = payload.studentId ? findStudentRowById_(studentId) : reuse;
   if (existing) {
     const merged = existing.row.slice();
     header.forEach((h, i) => {
-      if (fields.hasOwnProperty(h) && fields[h] !== '') merged[i] = fields[h];
+      // ParentMobileNote is always rewritten, so a resubmission with a fresh number clears it.
+      if (fields.hasOwnProperty(h) && (fields[h] !== '' || h === 'ParentMobileNote')) merged[i] = fields[h];
     });
     sheet.getRange(existing.rowNumber, 1, 1, merged.length).setValues([merged]);
   } else {
     sheet.appendRow(buildStudentRow_(header, fields));
   }
 
+  // fromStudent: agreement dates the admin has already saved are left untouched.
   upsertFlatRow_(flat, {
     OwnerName: payload.ownerName,
     OwnerEmail: payload.ownerEmail,
-    OwnerMobile: payload.ownerMobile,
+    OwnerMobile: ownerMobile,
     CaretakerName: payload.caretakerName,
-    CaretakerNumber: payload.caretakerNumber,
+    CaretakerNumber: caretakerNumber,
     TenancyPeriod: payload.tenancyPeriod,
     AgreementDate: payload.agreementDate
-  });
+  }, { fromStudent: true });
 
-  return { ok: true, studentId: studentId, message: 'Submitted successfully.' };
+  return {
+    ok: true, studentId: studentId, updated: !!existing,
+    parentMobileNotSaved: shared.parentShared,
+    message: 'Submitted successfully.'
+  };
 }
 
 // Admin pull: all students for a flat plus the flat owner/caretaker row.
@@ -730,14 +886,10 @@ function getCompareDocs(studentId, knownFields) {
     get = (h) => String(row[header.indexOf(h)] || '').trim();
   }
   const urls = (v) => v.split(/\s*,\s*/).filter(Boolean);
-  // Small, always-shown images ship inline (base64): photo + signature feed the photo pane,
-  // signature pane, ID card and crop editor immediately.
-  const toImg = (u) => {
-    const b = driveBlobFromUrl_(u);
-    return b ? { base64: Utilities.base64Encode(b.getBytes()), mime: b.getContentType() || 'image/jpeg', url: u } : null;
-  };
-  // Heavy ID scans ship as lightweight refs (id + mime, no bytes). The page renders them
-  // straight from Drive and fetches bytes on demand (rotate / download / PDF) via getDocBytes.
+  // Every image ships as a lightweight ref (id + mime, no bytes). ID scans render straight
+  // from Drive; the photo / signature bytes are pulled afterwards via getDocBytesInfo/Chunk.
+  // Inlining them here meant one oversized upload (e.g. a multi-MB phone photo) made this
+  // whole response time out, so the Aadhaar & ID pane failed to load at all.
   const toRef = (u) => {
     const id = driveIdFromUrl_(u);
     if (!id) return null;
@@ -757,9 +909,9 @@ function getCompareDocs(studentId, knownFields) {
     },
     aadhar: urls(get('AadharPhotoUrl')).map(toRef).filter(Boolean),
     college: urls(get('CollegeIdPhotoUrl')).map(toRef).filter(Boolean),
-    photo: get('PhotoUrl') ? toImg(get('PhotoUrl')) : null,
-    selfPhoto: get('SelfPhotoUrl') ? toImg(get('SelfPhotoUrl')) : null,
-    signature: get('SignatureUrl') ? toImg(get('SignatureUrl')) : null
+    photo: get('PhotoUrl') ? toRef(get('PhotoUrl')) : null,
+    selfPhoto: get('SelfPhotoUrl') ? toRef(get('SelfPhotoUrl')) : null,
+    signature: get('SignatureUrl') ? toRef(get('SignatureUrl')) : null
   };
 }
 
@@ -887,10 +1039,30 @@ function saveStudentDetails(studentId, fields) {
     if (i < 0) return;
     let v = String(fields[col] == null ? '' : fields[col]).trim();
     if (col === 'AadharNumber') v = v.replace(/\D/g, '').slice(0, 12);
-    else if (col === 'Phone' || col === 'ParentMobile') v = v.replace(/\D/g, '').slice(0, 10);
+    else if (col === 'Phone') v = mobile10_(v, 'Mobile', false);
+    else if (col === 'ParentMobile') v = mobile10_(v, 'Parent / Guardian mobile', false);
     row[i] = v;
     applied[col] = v;
   });
+
+  // Only re-check numbers the admin actually changed, so an old row that already shares a
+  // number can still have its other fields edited.
+  const changedPhone = (col) => {
+    const i = header.indexOf(col);
+    return applied.hasOwnProperty(col) && applied[col] !== cleanPhone_(i >= 0 ? found.row[i] : '') ? applied[col] : '';
+  };
+  const newPhone = changedPhone('Phone'), newParent = changedPhone('ParentMobile');
+  if (newPhone || newParent) {
+    const finalPhone = applied.Phone != null ? applied.Phone : cleanPhone_(found.row[header.indexOf('Phone')]);
+    const finalParent = applied.ParentMobile != null ? applied.ParentMobile : cleanPhone_(found.row[header.indexOf('ParentMobile')]);
+    if (finalPhone && finalPhone === finalParent) throw new Error('Mobile and Parent / Guardian mobile must be different numbers.');
+    // The admin may save a parent number a sibling already uses (the form can't).
+    checkPhonesNotShared_({ studentId: studentId, aadhar: row[header.indexOf('AadharNumber')],
+      phone: newPhone, parentMobile: newParent, allowSiblingParent: true });
+  }
+  // A parent mobile is now on file → the form's "not saved" warning no longer applies.
+  const iNote = header.indexOf('ParentMobileNote');
+  if (iNote >= 0 && applied.ParentMobile && row[iNote]) { row[iNote] = ''; applied.ParentMobileNote = ''; }
 
   getSpreadsheet_().getSheetByName(SHEET_STUDENTS)
     .getRange(found.rowNumber, 1, 1, row.length).setValues([row]);
@@ -932,14 +1104,19 @@ function saveFlatDetails(flat, fields) {
   flat = String(flat || '').trim();
   if (!flat) throw new Error('Flat number is required.');
   fields = fields || {};
+  const agreementDate = String(fields.agreementDate || '').trim();
+  const tenancyPeriod = String(fields.tenancyPeriod || '').trim();
   upsertFlatRow_(flat, {
     OwnerName: fields.ownerName,
-    OwnerMobile: fields.ownerMobile,
+    OwnerMobile: phone10_(fields.ownerMobile, 'Owner mobile', false),
     OwnerEmail: fields.ownerEmail,
     CaretakerName: fields.caretakerName,
-    CaretakerNumber: fields.caretakerNumber,
-    AgreementDate: fields.agreementDate,
-    TenancyPeriod: fields.tenancyPeriod
+    CaretakerNumber: phone10_(fields.caretakerNumber, 'Caretaker number', false),
+    AgreementDate: agreementDate,
+    TenancyPeriod: tenancyPeriod,
+    // Saving with a date makes the admin's dates final: the student form can't change them.
+    DatesSetByAdminAt: (agreementDate || tenancyPeriod)
+      ? Utilities.formatDate(new Date(), 'Asia/Kolkata', 'dd-MMM-yyyy HH:mm') : ''
   });
   return { ok: true, flat: getFlatRow_(flat) };
 }
@@ -1147,7 +1324,9 @@ function getFlatRow_(flat) {
 
 // Creates the flat row if missing; only overwrites cells for which a non-empty
 // value is supplied (so a later student / a partial save never blanks prior data).
-function upsertFlatRow_(flat, fields) {
+// opts.fromStudent: skip ADMIN_LOCKED_FLAT_COLS once the admin has saved the dates.
+function upsertFlatRow_(flat, fields, opts) {
+  opts = opts || {};
   const ss = getSpreadsheet_();
   let sh = ss.getSheetByName(SHEET_FLATS);
   if (!sh) {
@@ -1182,8 +1361,11 @@ function upsertFlatRow_(flat, fields) {
     rowNumber = sh.getLastRow();
   }
 
+  const iLock = header.indexOf('DatesSetByAdminAt');
+  const adminLocked = opts.fromStudent && iLock >= 0 && String(row[iLock] == null ? '' : row[iLock]).trim() !== '';
   let changed = false;
   header.forEach((h, i) => {
+    if (adminLocked && ADMIN_LOCKED_FLAT_COLS.indexOf(h) >= 0) return;
     if (fields.hasOwnProperty(h)) {
       const val = String(fields[h] == null ? '' : fields[h]).trim();
       if (val !== '') { row[i] = val; changed = true; }
@@ -1869,7 +2051,7 @@ function extractAgreementFields_(images) {
     name: String((s && s.name) || '').trim(),
     address: String((s && s.address) || '').trim(),
     aadharNumber: String((s && s.aadharNumber) || '').replace(/\D/g, '').slice(0, 12),
-    phone: String((s && s.phone) || '').replace(/\D/g, '').slice(0, 10),
+    phone: (function (p) { return p.length === 10 ? p : ''; })(cleanPhone_(s && s.phone)),
     fatherName: String((s && s.fatherName) || '').trim()
   }));
 
@@ -2298,7 +2480,8 @@ function removeFlatAgreement_(folder) {
 }
 
 function createWhatsAppLink_(phone, message) {
-  const digits = String(phone || '').replace(/\D/g, '');
+  // wa.me links need the country code; it's added only here, never stored or shown.
+  const digits = cleanPhone_(phone);
   const text = encodeURIComponent(message);
   return 'https://wa.me/91' + digits + '?text=' + text;
 }
@@ -2307,7 +2490,8 @@ function validatePayload_(payload, isUpdate) {
   if (!payload) throw new Error('Missing form data.');
   if (!payload.name) throw new Error('Name is required.');
   if (!payload.aadharNumber) throw new Error('Aadhar number is required.');
-  if (!payload.phone) throw new Error('Phone is required.');
+  payload.phone = mobile10_(payload.phone, 'Phone', true);
+  checkPhonesNotShared_({ studentId: isUpdate ? payload.studentId : '', aadhar: payload.aadharNumber, phone: payload.phone });
   if (!payload.houseId) throw new Error('Flat number is required.');
   if (!isUpdate) {
     if (!payload.studentPhotoBase64) throw new Error('Student photo is required.');
