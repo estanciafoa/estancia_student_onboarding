@@ -1527,8 +1527,17 @@ function publishApprovedStudent(payload) {
       const key = APPROVED_COLS.find(function (c) { return norm(c) === norm(h); });
       return key ? byName[key] : '';
     });
-    sheet.appendRow(mapped.some(function (v) { return v !== ''; }) ? mapped : values);
+    const labelled = mapped.some(function (v) { return v !== ''; });
+    sheet.appendRow(labelled ? mapped : values);
     appended = true;
+    // Sheets auto-converts "31st January 2027" into a right-aligned date; rewrite the two
+    // date cells as left-aligned plain text so the column stays consistent.
+    const lastRow = sheet.getLastRow();
+    ['ValidFrom', 'ValidTill'].forEach(function (c) {
+      const i = labelled ? headerRow.findIndex(function (h) { return norm(h) === norm(c); })
+                         : APPROVED_COLS.indexOf(c);
+      if (i >= 0) setApprovedTextCell_(sheet.getRange(lastRow, i + 1), byName[c]);
+    });
   } else {
     // Re-approving: the agreement dates may have been corrected since the row was published.
     setApprovedDates_(sheet, headerRow, idCol, [byName]);
@@ -1589,6 +1598,11 @@ function updateApprovedDates(payload) {
   return { ok: true, updated: setApprovedDates_(sheet, headerRow, idCol, records) };
 }
 
+// Writes a value as left-aligned plain text (format "@"), so Sheets doesn't turn it into a date.
+function setApprovedTextCell_(cell, v) {
+  cell.setNumberFormat('@').setValue(String(v == null ? '' : v)).setHorizontalAlignment('left');
+}
+
 // Overwrites the ValidFrom / ValidTill cells of the approved-sheet rows whose ID matches a
 // record (non-empty values only) and flags changed rows Update = "U". Returns rows changed.
 function setApprovedDates_(sheet, headerRow, idCol, records) {
@@ -1610,7 +1624,7 @@ function setApprovedDates_(sheet, headerRow, idCol, records) {
     [[iFrom, rec.ValidFrom], [iTill, rec.ValidTill]].forEach(function (pair) {
       const v = String(pair[1] == null ? '' : pair[1]).trim();
       if (pair[0] >= 0 && v !== '' && String(row[pair[0]]).trim() !== v) {
-        sheet.getRange(r + 2, pair[0] + 1).setValue(v);
+        setApprovedTextCell_(sheet.getRange(r + 2, pair[0] + 1), v);
         dirty = true;
       }
     });
