@@ -137,6 +137,7 @@ function doPost(e) {
       case 'assignStudentId':        result = assignStudentId(payload.studentId, payload.assignedId); break;
       case 'rotateStudentDoc':       result = rotateStudentDoc(payload.studentId, payload.kind, payload.index, payload.base64); break;
       case 'publishApprovedStudent': result = publishApprovedStudent(payload); break;
+      case 'updateApprovedDates':    result = updateApprovedDates(payload); break;
       case 'emailOwnerDraft':        result = emailOwnerDraft(body.flat || (payload && payload.flat)); break;
       case 'webUploadAgreement':     result = webUploadAgreement(payload.flat, payload.files); break;
       case 'listFolderImages':       result = listFolderImages(payload.folderId || body.folderId); break;
@@ -1528,6 +1529,9 @@ function publishApprovedStudent(payload) {
     });
     sheet.appendRow(mapped.some(function (v) { return v !== ''; }) ? mapped : values);
     appended = true;
+  } else {
+    // Re-approving: the agreement dates may have been corrected since the row was published.
+    setApprovedDates_(sheet, headerRow, idCol, [byName]);
   }
 
   // ---- copy the face photo to the shared folder as <AssignedId>.jpg ----
@@ -1562,6 +1566,60 @@ function publishApprovedStudent(payload) {
   }
 
   return { ok: true, appended: appended, alreadyInSheet: alreadyInSheet, photoCopied: photoCopied };
+}
+
+// Web admin: after the flat's agreement dates are edited, push the new ValidFrom / ValidTill
+// onto rows already in the approved-students sheet (matched by ID; unpublished IDs are skipped).
+// `payload.rows` are 8-value arrays in APPROVED_COLS order, as publishApprovedStudent takes.
+function updateApprovedDates(payload) {
+  const rows = ((payload && payload.rows) || []).filter(function (r) {
+    return Array.isArray(r) && r.length === APPROVED_COLS.length;
+  });
+  if (!rows.length) return { ok: true, updated: 0 };
+  const sheet = SpreadsheetApp.openById(APPROVED_SHEET_ID).getSheets()[0];
+  if (sheet.getLastRow() < 2) return { ok: true, updated: 0 };
+  const headerRow = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  const idCol = headerRow.findIndex(function (h) { return String(h == null ? '' : h).trim().toLowerCase() === 'id'; });
+  if (idCol < 0) return { ok: true, updated: 0 };
+  const records = rows.map(function (r) {
+    const o = {};
+    APPROVED_COLS.forEach(function (c, i) { o[c] = r[i]; });
+    return o;
+  });
+  return { ok: true, updated: setApprovedDates_(sheet, headerRow, idCol, records) };
+}
+
+// Overwrites the ValidFrom / ValidTill cells of the approved-sheet rows whose ID matches a
+// record (non-empty values only) and flags changed rows Update = "U". Returns rows changed.
+function setApprovedDates_(sheet, headerRow, idCol, records) {
+  const norm = function (h) { return String(h == null ? '' : h).trim().toLowerCase(); };
+  const col = function (name) { return headerRow.findIndex(function (h) { return norm(h) === norm(name); }); };
+  const iFrom = col('ValidFrom'), iTill = col('ValidTill'), iUpdate = col('Update');
+  if ((iFrom < 0 && iTill < 0) || sheet.getLastRow() < 2) return 0;
+
+  const byId = {};
+  records.forEach(function (r) { const id = String(r.ID || '').trim(); if (id) byId[id] = r; });
+  // Read the display values so a cell Sheets auto-converted to a date compares as its text,
+  // and write only the changed cells so the rest of the sheet (formulas etc.) is untouched.
+  const data = sheet.getRange(2, 1, sheet.getLastRow() - 1, headerRow.length).getDisplayValues();
+  let changed = 0;
+  data.forEach(function (row, r) {
+    const rec = byId[String(row[idCol]).trim()];
+    if (!rec) return;
+    let dirty = false;
+    [[iFrom, rec.ValidFrom], [iTill, rec.ValidTill]].forEach(function (pair) {
+      const v = String(pair[1] == null ? '' : pair[1]).trim();
+      if (pair[0] >= 0 && v !== '' && String(row[pair[0]]).trim() !== v) {
+        sheet.getRange(r + 2, pair[0] + 1).setValue(v);
+        dirty = true;
+      }
+    });
+    if (dirty) {
+      if (iUpdate >= 0) sheet.getRange(r + 2, iUpdate + 1).setValue('U');
+      changed++;
+    }
+  });
+  return changed;
 }
 
 // Fixed CC recipients on every owner email (besides the flat's students).

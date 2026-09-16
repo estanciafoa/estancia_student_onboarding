@@ -670,7 +670,7 @@
     // Bumped by hand on every edit to this file — logged immediately (before anything else
     // can throw) so checking the console tells you whether the browser actually has the
     // latest admin.html, vs. an old cached copy GitHub Pages already moved past.
-    var ADMIN_BUILD = '2026-08-07 compress-pdf-in-place';
+    var ADMIN_BUILD = '2026-09-16 validtill-agreement-end';
     console.log('[admin] build: ' + ADMIN_BUILD);
 
     if (window.pdfjsLib) {
@@ -1125,6 +1125,7 @@
       assignStudentId: function (p) { return [p.studentId, p.assignedId]; },
       rotateStudentDoc: function (p) { return [p.studentId, p.kind, p.index, p.base64]; },
       publishApprovedStudent: function (p) { return [p]; },
+      updateApprovedDates: function (p) { return [p]; },
       saveStudentVerification: function (p) { return [p]; },
       webUploadAgreement: function (p) { return [p.flat, p.files]; },
       listFolderImages: function (p) { return [p.folderId]; },
@@ -1251,7 +1252,19 @@
           agreementDate: document.getElementById('fAgreementDate').value.trim(),
           tenancyPeriod: document.getElementById('fTenancy').value.trim()
         } })
-        .then(function (r) { st.textContent = 'Saved ✓'; if (r && r.flat) fillFlatEdit(r.flat); })
+        .then(function (r) {
+          st.textContent = 'Saved ✓';
+          if (r && r.flat) fillFlatEdit(r.flat);
+          // Students already approved were published with the old dates — refresh those rows.
+          var rows = students.filter(function (s) { return isApproved(s) && s.AssignedId; })
+            .map(function (s) { return studentRowValues(s, flat, 'U'); });
+          if (!rows.length) return;
+          st.textContent = 'Saved ✓ — updating the approved sheet…';
+          return callServer('updateApprovedDates', { rows: rows }).then(function (u) {
+            var n = (u && u.updated) || 0;
+            st.textContent = 'Saved ✓' + (n ? ' — ' + n + ' approved row(s) updated' : '');
+          });
+        })
         .catch(function (e) { st.textContent = e && e.message ? e.message : 'Save failed.'; });
     }
 
@@ -1347,25 +1360,26 @@
     }
     // One student → the 8 column values. `update` sets the Update flag (default 'N'; the
     // approve flow passes 'U'). Returns the array; studentRowArr tab-joins it for clipboard.
-    function studentRowValues(s, flat, validFrom, update) {
+    // ValidFrom / ValidTill are the flat's agreement "date from" / "date to" boxes (the EFOA
+    // validity, same as the ID card) — not the student's college ID validity.
+    function studentRowValues(s, flat, update) {
       return [
         s.Name || '',
         s.HouseId || flat,
-        validFrom,
-        fmtDate(s.IdValidUpto),        // ValidTill
+        fmtDate(document.getElementById('fAgreementDate').value.trim()),   // ValidFrom
+        fmtDate(document.getElementById('fTenancy').value.trim()),         // ValidTill
         maskTail(s.AadharNumber),
         maskTail(s.Phone),
         s.AssignedId || '',            // ID = assigned student id
         update || 'N'                  // Update flag
       ].map(tsvCell);
     }
-    function studentRowArr(s, flat, validFrom) { return studentRowValues(s, flat, validFrom, 'N').join('\t'); }
+    function studentRowArr(s, flat) { return studentRowValues(s, flat, 'N').join('\t'); }
     function copyCsv() {
       if (!students.length) return setStatus('Load a flat first.', false);
       var flat = document.getElementById('flat').value.trim();
-      var validFrom = fmtDate(document.getElementById('fAgreementDate').value.trim());   // flat agreement date
       var rows = [CSV_HEADER.join('\t')];
-      students.forEach(function (s) { rows.push(studentRowArr(s, flat, validFrom)); });
+      students.forEach(function (s) { rows.push(studentRowArr(s, flat)); });
       copyText(rows.join('\r\n'))
         .then(function () { setStatus(students.length + ' student row(s) copied — paste into a sheet.', true); })
         .catch(function () { setStatus('Could not access clipboard — see the browser prompt.', false); });
@@ -1375,8 +1389,7 @@
       var s = students[activeTab];
       if (!s) return setStatus('Pick a student first.', false);
       var flat = document.getElementById('flat').value.trim();
-      var validFrom = fmtDate(document.getElementById('fAgreementDate').value.trim());
-      copyText(studentRowArr(s, flat, validFrom))
+      copyText(studentRowArr(s, flat))
         .then(function () { setStatus('Copied ' + (s.Name || 'record') + ' to clipboard.', true); })
         .catch(function () { setStatus('Could not access clipboard — see the browser prompt.', false); });
     }
@@ -1472,8 +1485,7 @@
           setExportsEnabled(true);
           // Publish to the approved-students sheet (Update = U) + copy the face photo to Drive.
           var flat = document.getElementById('flat').value.trim();
-          var validFrom = fmtDate(document.getElementById('fAgreementDate').value.trim());
-          var row = studentRowValues(s, flat, validFrom, 'U');
+          var row = studentRowValues(s, flat, 'U');
           vSet('Approved — publishing to the approved sheet…', true);
           return callServer('publishApprovedStudent', { studentId: s.StudentId, row: row });
         })
